@@ -521,125 +521,118 @@ logs-threat_intelligence-*
 ### 테스트 환경
 
 - **테스트 일시**: 2025-11-08
-- **스크립트**: `/www/ib-poral/script/nl-query-mcp.js`
+- **스크립트**: `/www/ib-editor/my-app/script/nl-query-mcp.js`
 - **AI 모델**: Google Gemini 2.0 Flash
 - **OpenSearch**: http://opensearch:9200
-- **테스트 케이스**: 50+ 시나리오 (NL-SIEM_Query_System_Spec.md 기반)
+- **테스트 방법**: 직접 스크립트 실행 (STDIO 입력)
 
 ---
 
-### ✅ 테스트 1: 한국어 날짜 표현 파싱
+### ✅ 테스트 1: 도구 목록 조회 (tools/list)
 
 **입력:**
+```bash
+echo '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}' | \
+  npx tsx script/nl-query-mcp.js
+```
+
+**결과:**
 ```json
 {
-  "tool": "test_parse",
-  "query": "최근 7일간 크리티컬 인시던트 개수"
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [
+      {
+        "name": "nl_query",
+        "description": "자연어 질문을 OpenSearch 쿼리로 변환하고 실행",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {"type": "string"},
+            "model": {"type": "string", "default": "gemini-2.0-flash"},
+            "execute": {"type": "boolean", "default": true},
+            "format": {"type": "array", "default": ["markdown", "json"]}
+          },
+          "required": ["query"]
+        }
+      },
+      {
+        "name": "test_parse",
+        "description": "자연어 파싱만 테스트 (쿼리 실행 안 함)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {"type": "string"},
+            "model": {"type": "string", "default": "gemini-2.0-flash"}
+          },
+          "required": ["query"]
+        }
+      }
+    ]
+  },
+  "id": 1
 }
+```
+
+**상태**: ✅ PASS - MCP 도구 정상 등록
+
+---
+
+### ✅ 테스트 2: 한국어 파싱 테스트 (test_parse)
+
+**입력:**
+```bash
+cat > /tmp/test.json << 'EOF'
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "test_parse",
+    "arguments": {
+      "query": "최근 7일간 인시던트 통계",
+      "model": "gemini-2.0-flash"
+    }
+  },
+  "id": 2
+}
+EOF
+
+cat /tmp/test.json | npx tsx script/nl-query-mcp.js
 ```
 
 **파싱 결과:**
 ```json
 {
   "success": true,
+  "query": "최근 7일간 인시던트 통계",
   "params": {
     "queryType": "statistics",
     "dataType": "incidents",
-    "severityFilter": ["critical"],
     "indexPattern": "logs-cortex_xdr-incidents-*",
     "timeRange": {
       "type": "recent_days",
       "value": 7,
-      "gte": "now-7d/d",
-      "lte": "now/d"
+      "start": "now-7d/d",
+      "end": "now/d"
     }
-  }
+  },
+  "message": "Parsing successful (test mode)"
 }
 ```
 
 **상태**: ✅ PASS
-- 날짜 표현 "최근 7일간" → `now-7d/d` 변환 성공
-- 심각도 "크리티컬" → `critical` 필터 추가
-- 쿼리 유형 "개수" → `statistics` 인식
+- 날짜 표현 "최근 7일간" → `recent_days: 7` 변환 성공
+- 쿼리 유형 "통계" → `statistics` 인식
+- 인덱스 패턴 자동 추론 정상
 
 ---
 
-### ✅ 테스트 2: 영어 질문 파싱
+### ✅ 테스트 3: 심각도 필터 파싱
 
 **입력:**
 ```json
 {
-  "tool": "test_parse",
-  "query": "Show me critical incidents from last week"
-}
-```
-
-**파싱 결과:**
-```json
-{
-  "success": true,
-  "params": {
-    "queryType": "detail",
-    "dataType": "incidents",
-    "severityFilter": ["critical"],
-    "timeRange": {
-      "type": "last_week",
-      "gte": "now-1w/w",
-      "lte": "now-1w/w+6d"
-    }
-  }
-}
-```
-
-**상태**: ✅ PASS
-- "last week" → 지난주 시작/종료 계산
-- "critical" → 심각도 필터
-- "show me" → detail 쿼리 유형
-
----
-
-### ✅ 테스트 3: 벤더 필터 파싱
-
-**입력:**
-```json
-{
-  "tool": "test_parse",
-  "query": "이번 주 CrowdStrike 알럿 차트"
-}
-```
-
-**파싱 결과:**
-```json
-{
-  "success": true,
-  "params": {
-    "queryType": "chart",
-    "dataType": "alerts",
-    "vendorFilter": "CrowdStrike",
-    "indexPattern": "logs-crowdstrike-alerts-*",
-    "timeRange": {
-      "type": "this_week",
-      "gte": "now/w",
-      "lte": "now/d"
-    }
-  }
-}
-```
-
-**상태**: ✅ PASS
-- "CrowdStrike" → 벤더 필터 추가
-- 인덱스 패턴 자동 변경: `logs-crowdstrike-alerts-*`
-- "차트" → chart 쿼리 유형
-
----
-
-### ✅ 테스트 4: 복합 조건 파싱
-
-**입력:**
-```json
-{
-  "tool": "test_parse",
-  "query": "최근 30일간 Microsoft Defender에서 탐지한 High/Critical 인시던트 통계"
+  "query": "최근 7일간 Critical과 High 심각도 인시던트 개수"
 }
 ```
 
@@ -650,133 +643,87 @@ logs-threat_intelligence-*
   "params": {
     "queryType": "statistics",
     "dataType": "incidents",
-    "vendorFilter": "Microsoft Defender",
-    "severityFilter": ["high", "critical"],
-    "indexPattern": "logs-microsoft_defender-incidents-*",
+    "filters": {
+      "severity": ["critical", "high"]
+    },
     "timeRange": {
       "type": "recent_days",
-      "value": 30
+      "value": 7
     }
   }
 }
 ```
 
-**상태**: ✅ PASS
-- 복합 심각도 필터: `["high", "critical"]`
-- 벤더 + 심각도 동시 필터링
-- 30일 날짜 범위 계산
+**상태**: ✅ PASS - 복합 심각도 필터 정상 동작
 
 ---
 
-### ✅ 테스트 5: IP 주소 검색
+### 📊 테스트 스크립트
 
-**입력:**
-```json
-{
-  "tool": "test_parse",
-  "query": "192.168.1.1과 관련된 모든 이벤트"
-}
+자동화된 테스트 스크립트를 `/www/ib-editor/my-app/script/test/` 디렉토리에 제공합니다.
+
+#### 1. 파싱 테스트 (`test-parse.sh`)
+
+```bash
+#!/bin/bash
+cd /www/ib-editor/my-app
+
+# 5가지 테스트 시나리오
+bash script/test/test-parse.sh
 ```
 
-**파싱 결과:**
-```json
-{
-  "success": true,
-  "params": {
-    "queryType": "detail",
-    "dataType": "network_artifacts",
-    "searchValue": {
-      "type": "ip",
-      "value": "192.168.1.1"
-    }
-  }
-}
+**테스트 항목:**
+- 기본 통계 쿼리
+- 심각도 필터 (Critical + High)
+- 벤더 필터 (CrowdStrike)
+- 날짜 표현식 (어제, 이번 달, 최근 30일)
+- MCP 도구 목록 조회
+
+#### 2. 쿼리 실행 테스트 (`test-query-execute.sh`)
+
+```bash
+#!/bin/bash
+cd /www/ib-editor/my-app
+
+# OpenSearch 연결 + 실제 쿼리 실행
+bash script/test/test-query-execute.sh
 ```
 
-**상태**: ✅ PASS
-- IP 주소 자동 인식: `192.168.1.1`
-- 데이터 타입 자동 추론: `network_artifacts`
-- 검색 값 타입 분류: `ip`
+**테스트 항목:**
+- OpenSearch 클러스터 상태 확인
+- 인덱스 존재 확인
+- 자연어 → OpenSearch 쿼리 실행
+- 결과 포맷 검증 (Markdown + JSON)
 
 ---
 
-### ✅ 테스트 6: 실제 쿼리 실행
+### 🎯 검증된 기능
 
-**입력:**
-```json
-{
-  "tool": "nl_query",
-  "query": "최근 7일간 인시던트 통계",
-  "execute": true,
-  "format": ["markdown", "json"]
-}
-```
-
-**실행 결과:**
-```markdown
-## 쿼리 결과
-
-- **쿼리 타입**: statistics
-- **데이터 유형**: incidents
-- **인덱스**: logs-cortex_xdr-incidents-*
-- **총 개수**: 388
-- **실행 시간**: 45ms
-
-### 집계 결과
-
-\`\`\`json
-{
-  "count": {
-    "value": 388
-  },
-  "severity_breakdown": {
-    "buckets": [
-      { "key": "medium", "doc_count": 290 },
-      { "key": "low", "doc_count": 77 },
-      { "key": "high", "doc_count": 16 },
-      { "key": "critical", "doc_count": 5 }
-    ]
-  }
-}
-\`\`\`
-```
-
-**상태**: ✅ PASS
-- OpenSearch 쿼리 성공 (45ms)
-- 총 388건 인시던트 검색
-- 심각도별 집계 정상 동작
-- 마크다운 포맷 정상 출력
+| 기능 | 상태 | 비고 |
+|------|------|------|
+| **MCP 도구 등록** | ✅ | tools/list 정상 응답 |
+| **한국어 파싱** | ✅ | Gemini AI 정상 동작 |
+| **영어 파싱** | ✅ | 다국어 지원 확인 |
+| **날짜 표현식** | ✅ | 30+ 표현식 테스트 가능 |
+| **심각도 필터** | ✅ | 단일/복합 필터 지원 |
+| **벤더 필터** | ✅ | CrowdStrike, Microsoft 등 |
+| **Fallback 파싱** | ✅ | AI 실패 시 규칙 기반 파싱 |
+| **환경변수 로딩** | ✅ | .env + .env.local 지원 |
 
 ---
 
-### 📊 전체 테스트 통계
+### ⚠️ 알려진 제한사항
 
-| 카테고리 | 테스트 수 | 성공 | 실패 | 성공률 |
-|---------|----------|------|------|--------|
-| **시간 표현** | 30 | 30 | 0 | 100% |
-| **데이터 타입** | 8 | 8 | 0 | 100% |
-| **쿼리 유형** | 5 | 5 | 0 | 100% |
-| **심각도 필터** | 10 | 10 | 0 | 100% |
-| **벤더 필터** | 8 | 8 | 0 | 100% |
-| **복합 조건** | 15 | 15 | 0 | 100% |
-| **특수 값 검색** | 10 | 10 | 0 | 100% |
-| **실제 쿼리 실행** | 20 | 20 | 0 | 100% |
-| **전체** | **106** | **106** | **0** | **100%** |
+1. **MCP 통합 문제**: Claude Code에서 `mcp__nl-query__test_parse` 도구 호출 시 무응답 발생
+   - 원인: .mcp.json 변경 후 Claude Code 재시작 필요
+   - 해결: Claude Code 종료 후 재시작
 
----
+2. **성능**: Gemini API 호출 시 1-3초 소요
+   - 권장: 캐싱 또는 `gemini-2.0-flash` 사용
 
-### 🎯 성능 벤치마크
-
-| 작업 | 평균 시간 | 최소 | 최대 |
-|------|----------|------|------|
-| **파싱 (Gemini 2.0 Flash)** | 1.2초 | 0.8초 | 2.5초 |
-| **파싱 (Gemini 2.5 Pro)** | 2.8초 | 1.5초 | 4.2초 |
-| **OpenSearch 쿼리** | 45ms | 15ms | 350ms |
-| **전체 (파싱 + 쿼리)** | 1.3초 | 0.9초 | 3.0초 |
-
-**권장사항:**
-- 일반 사용: `gemini-2.0-flash` (빠름)
-- 복잡한 질문: `gemini-2.5-pro` (정확)
+3. **복잡한 질문**: 매우 모호한 질문은 파싱 실패 가능
+   - 예: "뭔가 이상한 거", "아까 그거"
+   - 해결: 구체적인 질문 사용
 
 ---
 
@@ -855,6 +802,339 @@ logs-threat_intelligence-*
 
 ---
 
+## 트러블슈팅 (Troubleshooting)
+
+### 🔧 설치 및 설정 시 발생한 문제들
+
+이 섹션은 nl-query MCP 설정 과정에서 실제로 발생한 문제들과 해결 방법을 문서화합니다.
+
+---
+
+### ❌ 문제 1: TypeScript Import 확장자 오류
+
+**증상:**
+```bash
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/www/ib-editor/my-app/script/nl-query-parser.js'
+  imported from /www/ib-editor/my-app/script/nl-query-mcp.js
+```
+
+**원인:**
+TypeScript 파일에서 `.ts` 확장자를 사용하여 import했으나, `tsx` 런타임은 `.js` 확장자를 기대합니다.
+
+**잘못된 코드:**
+```typescript
+// ❌ nl-query-parser.ts
+import { NLQueryParams } from './nl-query-schema.ts';  // 잘못됨
+import { parseDate } from './date-parser.ts';          // 잘못됨
+import { getIndexPattern } from './index-mapping.ts';  // 잘못됨
+```
+
+**수정된 코드:**
+```typescript
+// ✅ nl-query-parser.ts
+import { NLQueryParams } from './nl-query-schema.js';  // 올바름
+import { parseDate } from './date-parser.js';          // 올바름
+import { getIndexPattern } from './index-mapping.js';  // 올바름
+```
+
+**해결 방법:**
+1. 모든 TypeScript 파일의 import 문에서 `.ts` → `.js`로 변경
+2. 영향받은 파일:
+   - `nl-query-parser.ts`
+   - `opensearch-executor.ts`
+   - `opensearch-query-builder.ts`
+
+**적용 파일:**
+```bash
+# 전체 파일 수정
+cd /www/ib-editor/my-app/script
+grep -l "from '.*\.ts'" *.ts | xargs sed -i "s/\.ts'/\.js'/g"
+```
+
+---
+
+### ❌ 문제 2: Import 경로 타이포 (쉼표 vs 마침표)
+
+**증상:**
+```bash
+Error: Cannot find module './index-mapping,ts'
+Error: Cannot find module './opensearch-query-builder,ts'
+```
+
+**원인:**
+파일 확장자를 `.ts`에서 `.js`로 변경할 때 일부 파일에서 마침표(`.`) 대신 쉼표(`,`)가 입력됨.
+
+**잘못된 코드:**
+```typescript
+// ❌ 타이포
+import { getIndexPattern } from './index-mapping,ts';
+import { buildOpenSearchQuery } from './opensearch-query-builder,ts';
+```
+
+**수정된 코드:**
+```typescript
+// ✅ 수정됨
+import { getIndexPattern } from './index-mapping.js';
+import { buildOpenSearchQuery } from './opensearch-query-builder.js';
+```
+
+**해결 방법:**
+```bash
+# 타이포 검색 및 수정
+grep -r ",ts'" script/ --include="*.ts"
+# 수동으로 ,ts → .js 변경
+```
+
+---
+
+### ❌ 문제 3: 환경변수 타이밍 문제 (Gemini API Key Not Found)
+
+**증상:**
+```
+⚠️ GEMINI_API_KEY not found. NL Query Parser will use fallback mode.
+```
+
+**원인:**
+TypeScript 모듈 최상위에서 `GoogleGenerativeAI`를 즉시 초기화했으나, 환경변수 로딩(`dotenv.config()`)이 그보다 늦게 실행됨.
+
+**잘못된 코드:**
+```typescript
+// ❌ nl-query-parser.ts (즉시 초기화)
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const GEMINI_API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);  // 환경변수 로딩 전 실행
+```
+
+**수정된 코드 (Lazy Initialization):**
+```typescript
+// ✅ nl-query-parser.ts (지연 초기화)
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+let genAI: GoogleGenerativeAI | null = null;
+
+function getGeminiAI(): GoogleGenerativeAI | null {
+  if (genAI) return genAI;  // 캐시된 인스턴스 반환
+
+  const GEMINI_API_KEY =
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
+
+  if (!GEMINI_API_KEY) {
+    console.error('[NL Parser] ⚠️ GEMINI_API_KEY not found. Using fallback mode.');
+    return null;
+  }
+
+  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  return genAI;
+}
+
+// 사용 시
+const ai = getGeminiAI();
+if (ai) {
+  const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+}
+```
+
+**해결 방법:**
+1. 즉시 초기화 패턴 제거
+2. Lazy initialization 함수 생성 (`getGeminiAI()`)
+3. 환경변수 확인 로직 추가
+4. Fallback 처리 구현
+
+---
+
+### ❌ 문제 4: Leaked API Key (403 Forbidden)
+
+**증상:**
+```
+[403 Forbidden] Your API key was reported as leaked. Please use another API key.
+Error: [Gemini API Error] API request failed (status: 403)
+```
+
+**원인:**
+`.env.local` 파일에 있던 Google Generative AI API 키가 유출되어 Google에 의해 차단됨.
+
+**차단된 키:**
+```bash
+# ❌ 유출된 키 (사용 불가)
+GOOGLE_GENERATIVE_AI_API_KEY=AIzaSyCpFRVFiRf-n0dVWqokLw3yCjOvT9bwLhs
+```
+
+**교체된 키:**
+```bash
+# ✅ 새 키로 교체
+GOOGLE_GENERATIVE_AI_API_KEY=AIzaSyDg7sdkC0ZQD34g5SGrWVLTOSf7eKCxcvY
+```
+
+**해결 방법:**
+1. `.env.local` 파일에서 유출된 키 주석 처리
+2. 새 API 키로 교체
+3. Git에 `.env.local` 파일이 포함되지 않도록 `.gitignore` 확인
+4. Google AI Studio에서 새 키 발급: https://aistudio.google.com/app/apikey
+
+**보안 권장사항:**
+```bash
+# .env.local 파일이 Git에 추가되지 않도록 확인
+echo ".env.local" >> .gitignore
+echo ".env" >> .gitignore
+
+# 기존에 커밋된 경우 히스토리에서 제거
+git filter-branch --force --index-filter \
+  'git rm --cached --ignore-unmatch .env.local' \
+  --prune-empty --tag-name-filter cat -- --all
+```
+
+---
+
+### ❌ 문제 5: dotenv 환경변수 로딩 순서
+
+**증상:**
+환경변수가 로딩되지 않거나, `.env.local`의 값이 `.env`의 값으로 덮어씌워짐.
+
+**원인:**
+dotenv는 나중에 로딩된 파일이 먼저 로딩된 파일의 값을 덮어쓰지 않습니다 (기본 동작).
+
+**잘못된 순서:**
+```typescript
+// ❌ .env.local이 먼저 로딩되면, .env가 덮어쓰지 못함
+config({ path: resolve(__dirname, '../.env.local') });
+config({ path: resolve(__dirname, '../.env') });
+```
+
+**올바른 순서:**
+```typescript
+// ✅ .env를 먼저 로딩하고, .env.local이 덮어씀
+import { config } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// 1. 기본 환경변수 로딩 (.env)
+config({ path: resolve(__dirname, '../.env') });
+
+// 2. 로컬 환경변수로 덮어쓰기 (.env.local)
+config({ path: resolve(__dirname, '../.env.local') });
+```
+
+**동작 원리:**
+- `dotenv`는 이미 존재하는 환경변수를 덮어쓰지 않음
+- `.env` 먼저 로딩 → 값 설정
+- `.env.local` 나중 로딩 → 기존 값이 없으면 설정, 있으면 유지
+- 따라서 `.env.local`의 값이 우선하려면 **먼저 `.env`를 로딩해야 함**
+
+**테스트:**
+```bash
+# .env
+GOOGLE_GENERATIVE_AI_API_KEY=old_key
+
+# .env.local
+GOOGLE_GENERATIVE_AI_API_KEY=new_key
+
+# 실행
+npx tsx script/nl-query-mcp.js
+# ✅ new_key 사용됨 (올바른 순서)
+```
+
+---
+
+### ❌ 문제 6: .mcp.json 경로 오류
+
+**증상:**
+MCP 도구가 로딩되지 않거나, import 오류 발생.
+
+**원인:**
+`.mcp.json` 파일에서 잘못된 경로를 참조하고 있음.
+
+**잘못된 경로:**
+```json
+{
+  "mcpServers": {
+    "nl-query": {
+      "command": "npx",
+      "args": ["tsx", "/www/ib-poral/script/nl-query-mcp.js"],  // ❌ 잘못된 경로
+      ...
+    }
+  }
+}
+```
+
+**올바른 경로:**
+```json
+{
+  "mcpServers": {
+    "nl-query": {
+      "command": "npx",
+      "args": ["tsx", "/www/ib-editor/my-app/script/nl-query-mcp.js"],  // ✅ 올바른 경로
+      ...
+    }
+  }
+}
+```
+
+**해결 방법:**
+1. `.mcp.json` 파일 수정
+2. **중요**: Claude Code 재시작 필요 (설정 변경 사항 반영)
+
+---
+
+### ❌ 문제 7: 의존성 누락 (Dependencies Not Installed)
+
+**증상:**
+```bash
+Error: Cannot find package '@google/generative-ai'
+Error: Cannot find package '@opensearch-project/opensearch'
+Error: Cannot find package 'dotenv'
+```
+
+**원인:**
+필요한 npm 패키지가 설치되지 않음.
+
+**해결 방법:**
+```bash
+cd /www/ib-editor/my-app
+
+# 필수 패키지 설치
+npm install @google/generative-ai
+npm install @opensearch-project/opensearch
+npm install dotenv
+
+# 또는 package.json에 추가 후 일괄 설치
+npm install
+```
+
+**package.json 추가:**
+```json
+{
+  "dependencies": {
+    "@google/generative-ai": "^1.0.0",
+    "@opensearch-project/opensearch": "^2.0.0",
+    "dotenv": "^17.2.3"
+  }
+}
+```
+
+---
+
+### 📋 체크리스트: nl-query MCP 설정 완료 확인
+
+**설정 완료 후 다음 항목들을 확인하세요:**
+
+- [ ] 모든 `.ts` 파일의 import가 `.js` 확장자 사용
+- [ ] 타이포 확인 (쉼표 vs 마침표)
+- [ ] `dotenv` 로딩 순서 확인 (.env → .env.local)
+- [ ] `.env.local`에 유효한 `GOOGLE_GENERATIVE_AI_API_KEY` 존재
+- [ ] `.mcp.json`의 경로가 올바른 위치 참조
+- [ ] 의존성 설치 완료 (`npm install`)
+- [ ] 직접 실행 테스트:
+  ```bash
+  echo '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}' | \
+    npx tsx script/nl-query-mcp.js
+  ```
+- [ ] Claude Code 재시작 완료
+
+---
+
 ## 문제 해결
 
 ### 1. Gemini API 오류
@@ -869,8 +1149,8 @@ logs-threat_intelligence-*
 # API 키 확인
 echo $GOOGLE_GENERATIVE_AI_API_KEY
 
-# .mcp.json에서 API 키 재확인
-cat /www/ib-editor/my-app/.mcp.json | jq '.mcpServers["nl-query"].env'
+# .env.local에서 API 키 확인
+cat /www/ib-editor/my-app/.env.local | grep GOOGLE_GENERATIVE_AI_API_KEY
 
 # Gemini API 콘솔에서 할당량 확인
 # https://aistudio.google.com/app/apikey

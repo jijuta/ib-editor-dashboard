@@ -83,14 +83,8 @@
       "command": "npx",
       "args": [
         "tsx",
-        "/www/ib-poral/script/nl-query-mcp.js"
+        "/www/ib-editor/my-app/script/nl-query-mcp.js"
       ],
-      "env": {
-        "GOOGLE_GENERATIVE_AI_API_KEY": "AIzaSyCpFRVFiRf-n0dVWqokLw3yCjOvT9bwLhs",
-        "OPENSEARCH_URL": "http://opensearch:9200",
-        "OPENSEARCH_USER": "admin",
-        "OPENSEARCH_PASSWORD": "Admin@123456"
-      },
       "description": "NL-Query MCP - Natural language to OpenSearch query converter and executor. Supports 30+ date expressions, 8 data types, 5 query types (statistics, detail, chart, correlation, report)"
     }
   }
