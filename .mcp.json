@@ -1,0 +1,43 @@
+{
+  "mcpServers": {
+    "next-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "next-devtools-mcp@latest"
+      ]
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "description": "Chrome DevTools Protocol - Real-time console logs, network monitoring, performance analysis from running Chrome browser"
+    },
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "description": "Context7 - Up-to-date documentation for Next.js, React, TypeScript, OpenSearch, Prisma, etc. (use 'use context7' in prompts)"
+    },
+    "postgres-editor": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://postgres:postgres@localhost:5432/postgres?schema=public"
+      ],
+      "description": "PostgreSQL - SIEM Dashboard database (User, DashboardConfig, Query, Alert tables)"
+    },
+    "shadcn": {
+      "command": "npx",
+      "args": [
+        "shadcn@latest",
+        "mcp"
+      ]
+    }
+  }
+}
