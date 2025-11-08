@@ -38,6 +38,60 @@
         "shadcn@latest",
         "mcp"
       ]
+    },
+    "postgres-siem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://opensearch:opensearch123@localhost:5432/siem_db?schema=public"
+      ],
+      "description": "PostgreSQL - SIEM Dashboard database (User, DashboardConfig, Query, Alert tables)"
+    },
+    "postgres-n8n": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://postgres:postgres@postgres:5432/n8n?schema=ioclog"
+      ],
+      "description": "PostgreSQL - n8n workflow automation database"
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "description": "Persistent memory using knowledge graph - remembers information across chats"
+    },
+    "opensearch": {
+      "command": "opensearch-mcp-inbridge",
+      "env": {
+        "MCP_SERVER_URL": "http://20.41.120.173:8099"
+      },
+      "description": "OpenSearch MCP - Search and query security logs from OpenSearch indices"
+    },
+    "incident-analysis": {
+      "command": "incident-analysis-inbridge",
+      "env": {
+        "MCP_SERVER_URL": "http://20.41.120.173:8100"
+      },
+      "description": "Incident Analysis MCP - Generate statistics, trends, charts, threat analysis, and comprehensive reports from security incidents"
+    },
+    "nl-query": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/www/ib-poral/script/nl-query-mcp.js"
+      ],
+      "env": {
+        "GOOGLE_GENERATIVE_AI_API_KEY": "AIzaSyCpFRVFiRf-n0dVWqokLw3yCjOvT9bwLhs",
+        "OPENSEARCH_URL": "http://opensearch:9200",
+        "OPENSEARCH_USER": "admin",
+        "OPENSEARCH_PASSWORD": "Admin@123456"
+      },
+      "description": "NL-Query MCP - Natural language to OpenSearch query converter and executor. Supports 30+ date expressions, 8 data types, 5 query types (statistics, detail, chart, correlation, report)"
     }
   }
 }
