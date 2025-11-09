@@ -44,7 +44,7 @@ console.log('');
 console.log('\x1b[32m2️⃣  HTML 보고서 생성 중...\x1b[0m');
 
 const html = generateHTML(reportDate, data, aiAnalysis);
-const htmlFile = `/tmp/daily_report_${reportDate}.html`;
+const htmlFile = `public/reports/daily/daily_report_${reportDate}.html`;
 writeFileSync(htmlFile, html);
 
 console.log(`✅ HTML 저장: ${htmlFile}`);
@@ -54,7 +54,7 @@ console.log('');
 console.log('\x1b[32m3️⃣  Markdown 보고서 생성 중...\x1b[0m');
 
 const markdown = generateMarkdown(reportDate, data, aiAnalysis);
-const mdFile = `/tmp/daily_report_${reportDate}.md`;
+const mdFile = `public/reports/daily/daily_report_${reportDate}.md`;
 writeFileSync(mdFile, markdown);
 
 console.log(`✅ Markdown 저장: ${mdFile}`);
@@ -72,7 +72,7 @@ const jsonReport = {
   statistics: data.ai_analysis_data.statistics,
 };
 
-const jsonFile = `/tmp/daily_report_${reportDate}.json`;
+const jsonFile = `public/reports/daily/daily_report_${reportDate}.json`;
 writeFileSync(jsonFile, JSON.stringify(jsonReport, null, 2));
 
 console.log(`✅ JSON 저장: ${jsonFile}`);
@@ -90,6 +90,9 @@ console.log(`  \x1b[32m✓\x1b[0m ${jsonFile}`);
 console.log('');
 console.log('\x1b[33m💡 HTML 보고서 열기:\x1b[0m');
 console.log(`  \x1b[33mxdg-open ${htmlFile}\x1b[0m`);
+console.log('');
+console.log('\x1b[33m🌐 웹 브라우저 접근:\x1b[0m');
+console.log(`  \x1b[33mhttp://localhost:3000/reports/daily/daily_report_${reportDate}.html\x1b[0m`);
 console.log('');
 
 // HTML 생성 함수

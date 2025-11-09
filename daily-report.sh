@@ -45,9 +45,15 @@ if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     echo "  ./daily-report.sh 2025-11-08   # 특정 날짜로 보고서 생성"
     echo ""
     echo "생성 파일:"
-    echo "  /tmp/daily_incidents_data_[날짜].json      - 수집된 데이터"
-    echo "  /tmp/ai_analysis_prompt_[날짜].txt         - AI 분석 프롬프트"
-    echo "  /tmp/ai_analysis_[날짜].json               - AI 분석 결과"
+    echo "  /tmp/daily_incidents_data_[날짜].json              - 수집된 데이터"
+    echo "  /tmp/ai_analysis_prompt_[날짜].txt                 - AI 분석 프롬프트"
+    echo "  /tmp/ai_analysis_[날짜].json                       - AI 분석 결과"
+    echo "  public/reports/daily/daily_report_[날짜].html      - HTML 보고서"
+    echo "  public/reports/daily/daily_report_[날짜].md        - Markdown 보고서"
+    echo "  public/reports/daily/daily_report_[날짜].json      - JSON 통합 보고서"
+    echo ""
+    echo "웹 접근:"
+    echo "  http://localhost:3000/reports/daily/daily_report_[날짜].html"
     echo ""
     exit 0
 fi
@@ -74,6 +80,9 @@ if [ -f "/tmp/ai_analysis_${REPORT_DATE}.json" ]; then
     echo -e "  ${GREEN}✓${NC} /tmp/daily_incidents_data_${REPORT_DATE}.json"
     echo -e "  ${GREEN}✓${NC} /tmp/ai_analysis_prompt_${REPORT_DATE}.txt"
     echo -e "  ${GREEN}✓${NC} /tmp/ai_analysis_${REPORT_DATE}.json"
+    echo -e "  ${GREEN}✓${NC} public/reports/daily/daily_report_${REPORT_DATE}.html"
+    echo -e "  ${GREEN}✓${NC} public/reports/daily/daily_report_${REPORT_DATE}.md"
+    echo -e "  ${GREEN}✓${NC} public/reports/daily/daily_report_${REPORT_DATE}.json"
     echo ""
 
     # AI 분석 결과 미리보기
@@ -99,6 +108,10 @@ if [ -f "/tmp/ai_analysis_${REPORT_DATE}.json" ]; then
 
         echo -e "${YELLOW}💡 전체 분석 결과 확인:${NC}"
         echo -e "  cat /tmp/ai_analysis_${REPORT_DATE}.json | jq"
+        echo ""
+
+        echo -e "${YELLOW}🌐 웹 브라우저에서 보고서 열기:${NC}"
+        echo -e "  ${CYAN}http://localhost:3000/reports/daily/daily_report_${REPORT_DATE}.html${NC}"
         echo ""
     fi
 else
