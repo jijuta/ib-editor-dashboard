@@ -43,3 +43,8 @@ next-env.d.ts
 # custom excludes
 /data
 /error
+/error/
+# Investigation data
+/data/
+/public/reports/
+/public/reports

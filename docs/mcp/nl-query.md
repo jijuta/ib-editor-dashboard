@@ -290,7 +290,7 @@ logs-threat_intelligence-*
         "/www/ib-poral/script/nl-query-mcp.js"
       ],
       "env": {
-        "GOOGLE_GENERATIVE_AI_API_KEY": "AIzaSyCpFRVFiRf-n0dVWqokLw3yCjOvT9bwLhs",
+        "GOOGLE_GENERATIVE_AI_API_KEY": "AIzaSyAPYop7mSPAZiCuPpSm9nEccnjjsPoFHNg",
         "OPENSEARCH_URL": "http://opensearch:9200",
         "OPENSEARCH_USER": "admin",
         "OPENSEARCH_PASSWORD": "Admin@123456"
@@ -957,7 +957,7 @@ Error: [Gemini API Error] API request failed (status: 403)
 **차단된 키:**
 ```bash
 # ❌ 유출된 키 (사용 불가)
-GOOGLE_GENERATIVE_AI_API_KEY=AIzaSyCpFRVFiRf-n0dVWqokLw3yCjOvT9bwLhs
+GOOGLE_GENERATIVE_AI_API_KEY=AIzaSyAPYop7mSPAZiCuPpSm9nEccnjjsPoFHNg
 ```
 
 **교체된 키:**

@@ -5,50 +5,58 @@ import {
   safeValidateNLQueryParams,
   DataType,
   QueryType,
-} from './nl-query-schema.js';
-import { parseDate } from './date-parser.js';
+} from './nl-query-schema';
+import { parseDate } from './date-parser';
 import {
   getIndexPattern,
   getSummaryFields,
   getFullFields,
   keywordToDataType,
   normalizeVendor,
-} from './index-mapping.js';
+} from './index-mapping';
 
 /**
  * NLU 엔진 - 자연어 질문을 파싱하여 NLQueryParams 생성
  */
 
-// Gemini API 초기화 (lazy initialization)
-let genAI: GoogleGenerativeAI | null = null;
+// Gemini API 초기화
+const GEMINI_API_KEY =
+  process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
 
-function getGeminiAI(): GoogleGenerativeAI | null {
-  if (genAI) return genAI;
+// Azure OpenAI 초기화
+const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
+const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT || 'https://etech-openai.openai.azure.com/';
+const AZURE_OPENAI_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o-mini';
+const AZURE_API_VERSION = process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview';
 
-  const GEMINI_API_KEY =
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
+// Anthropic Claude 초기화
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const ANTHROPIC_API_VERSION = '2023-06-01';
 
-  if (!GEMINI_API_KEY) {
-    console.error(
-      '[NL Parser] ⚠️ GEMINI_API_KEY not found. Using fallback mode.'
-    );
-    return null;
-  }
-
-  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  return genAI;
+if (!GEMINI_API_KEY && !AZURE_OPENAI_API_KEY && !ANTHROPIC_API_KEY) {
+  console.warn(
+    '⚠️ No API keys found (GEMINI, AZURE, or CLAUDE). NL Query Parser will use fallback mode.'
+  );
 }
+
+const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
 /**
  * 모델 선택 옵션
  */
-export type GeminiModel = 'gemini-2.5-pro' | 'gemini-2.0-flash';
+export type AIModel =
+  | 'gemini-2.5-pro'
+  | 'gemini-2.0-flash'
+  | 'azure-gpt-4o-mini'
+  | 'azure-gpt-35-turbo'
+  | 'claude-3-5-sonnet'
+  | 'claude-3-haiku';
 
 /**
  * 파싱 옵션
  */
 export interface ParseOptions {
-  model?: GeminiModel;
+  model?: AIModel;
   referenceDate?: Date;
   debug?: boolean;
 }
@@ -239,15 +247,14 @@ const SYSTEM_PROMPT = `# NL-SIEM Query Parser
  */
 async function callGeminiAPI(
   query: string,
-  model: GeminiModel = 'gemini-2.0-flash',
+  model: string = 'gemini-2.0-flash',
   referenceDate: Date = new Date()
 ): Promise<string> {
-  const api = getGeminiAI();
-  if (!api) {
+  if (!genAI) {
     throw new Error('Gemini API not initialized (API key missing)');
   }
 
-  const modelInstance = api.getGenerativeModel({ model });
+  const modelInstance = genAI.getGenerativeModel({ model });
 
   const currentDate = referenceDate.toISOString();
   const userPrompt = `현재 시각: ${currentDate}\n\n사용자 질문: ${query}`;
@@ -259,6 +266,104 @@ async function callGeminiAPI(
 
   const response = result.response;
   const text = response.text();
+
+  return text;
+}
+
+/**
+ * AI 모델 호출 (Azure OpenAI)
+ */
+async function callAzureOpenAI(
+  query: string,
+  deployment: string = 'gpt-4o-mini',
+  referenceDate: Date = new Date()
+): Promise<string> {
+  if (!AZURE_OPENAI_API_KEY) {
+    throw new Error('Azure OpenAI API key not found');
+  }
+
+  const currentDate = referenceDate.toISOString();
+  const userPrompt = `현재 시각: ${currentDate}\n\n사용자 질문: ${query}`;
+
+  const endpoint = `${AZURE_OPENAI_ENDPOINT}openai/deployments/${deployment}/chat/completions?api-version=${AZURE_API_VERSION}`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': AZURE_OPENAI_API_KEY,
+    },
+    body: JSON.stringify({
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: 1000,
+      temperature: 0.1,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Azure OpenAI API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices[0]?.message?.content;
+
+  if (!text) {
+    throw new Error('No content in Azure OpenAI response');
+  }
+
+  return text;
+}
+
+/**
+ * AI 모델 호출 (Anthropic Claude)
+ */
+async function callClaudeAPI(
+  query: string,
+  model: string = 'claude-3-5-sonnet-20241022',
+  referenceDate: Date = new Date()
+): Promise<string> {
+  if (!ANTHROPIC_API_KEY) {
+    throw new Error('Anthropic API key not found');
+  }
+
+  const currentDate = referenceDate.toISOString();
+  const userPrompt = `현재 시각: ${currentDate}\n\n사용자 질문: ${query}`;
+
+  const endpoint = 'https://api.anthropic.com/v1/messages';
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': ANTHROPIC_API_VERSION,
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1024,
+      temperature: 0.1,
+      system: SYSTEM_PROMPT,
+      messages: [
+        { role: 'user', content: userPrompt },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Claude API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  const text = data.content[0]?.text;
+
+  if (!text) {
+    throw new Error('No content in Claude response');
+  }
 
   return text;
 }
@@ -352,13 +457,14 @@ function postProcessAIResponse(data: any, originalQuery: string): any {
   if (incidentIdMatch && hasIncidentKeyword) {
     const incidentId = incidentIdMatch[1];
     console.log(`[NL Parser] 🔴 인시던트 ID 감지: ${incidentId} → AI 응답 무시하고 강제 설정`);
-    console.log(`[NL Parser]   - Original queryType: ${data.queryType} → detail`);
+    console.log(`[NL Parser]   - Original queryType: ${data.queryType} → investigation`);
     console.log(`[NL Parser]   - Original dataType: ${data.dataType} → incidents`);
 
-    // AI 응답 완전 무시하고 강제 덮어쓰기
-    data.queryType = 'detail';
+    // AI 응답 완전 무시하고 강제 덮어쓰기 (investigation 모드)
+    data.queryType = 'investigation';
     data.dataType = 'incidents';
     data.indexPattern = 'logs-cortex_xdr-incidents-*';
+    data.incident_id = incidentId; // 🔍 Investigation을 위한 incident_id 추가
     data.timeRange = {
       start: '2024-01-01T00:00:00.000Z',
       end: '2025-12-31T23:59:59.999Z',
@@ -826,13 +932,14 @@ function fallbackParse(
     console.log(`[Fallback Parser] 🔴 인시던트 ID 감지: ${incidentId}`);
 
     return {
-      queryType: 'detail',
+      queryType: 'investigation', // 🔍 Investigation 모드
       timeRange: {
         start: '2024-01-01T00:00:00.000Z',
         end: '2025-12-31T23:59:59.999Z',
       },
       dataType: 'incidents',
       indexPattern: 'logs-cortex_xdr-incidents-*',
+      incident_id: incidentId, // 🔍 Investigation을 위한 incident_id 추가
       filters: {
         custom: {
           'incident_id.keyword': incidentId,
@@ -1080,11 +1187,32 @@ export async function parseNLQuery(
   try {
     // 1. AI 호출
     if (debug) {
-      console.log(`[NL Parser] Calling Gemini (${model})...`);
+      console.log(`[NL Parser] Calling AI model (${model})...`);
       console.log(`[NL Parser] Query: ${query}`);
     }
 
-    const aiResponse = await callGeminiAPI(query, model, referenceDate);
+    let aiResponse: string;
+
+    // 모델 타입에 따라 적절한 API 호출
+    if (model.startsWith('azure-')) {
+      const deployment = model === 'azure-gpt-4o-mini' ? 'gpt-4o-mini' : 'gpt-35-turbo';
+      aiResponse = await callAzureOpenAI(query, deployment, referenceDate);
+      if (debug) {
+        console.log(`[NL Parser] Using Azure OpenAI (${deployment})`);
+      }
+    } else if (model.startsWith('claude-')) {
+      const claudeModel = model === 'claude-3-5-sonnet' ? 'claude-3-5-sonnet-20241022' : 'claude-3-haiku-20240307';
+      aiResponse = await callClaudeAPI(query, claudeModel, referenceDate);
+      if (debug) {
+        console.log(`[NL Parser] Using Claude (${claudeModel})`);
+      }
+    } else {
+      // Gemini models
+      aiResponse = await callGeminiAPI(query, model, referenceDate);
+      if (debug) {
+        console.log(`[NL Parser] Using Gemini (${model})`);
+      }
+    }
 
     if (debug) {
       console.log(`[NL Parser] AI Response:\n${aiResponse}`);
@@ -1111,9 +1239,24 @@ export async function parseNLQuery(
       console.log(`[NL Parser] ⚪ Post-process has NO limit`);
     }
 
-    // 4. Zod 검증
+    // 4. Zod 검증 (safe 버전 사용)
     console.log(`[NL Parser] 🔵 Before validation, limit=${processed.limit}`);
-    const validated = validateNLQueryParams(processed);
+    const validation = safeValidateNLQueryParams(processed);
+
+    if (!validation.success) {
+      console.error(`[NL Parser] ❌ Validation failed:`, validation.error.errors);
+
+      // Safe error serialization (Zod error objects can have circular references)
+      const errorMessages = validation.error.errors.map((err: any) => {
+        return `${err.path.join('.')}: ${err.message}`;
+      });
+
+      throw new Error(
+        `Query validation failed:\n${errorMessages.join('\n')}`
+      );
+    }
+
+    const validated = validation.data;
     console.log(`[NL Parser] 🔵 After validation, limit=${validated.limit}`);
 
     // 🐛 DEBUG: limit 추적
@@ -1154,8 +1297,14 @@ export async function parseNLQuery(
       return validation.data!;
     } else {
       console.log(`[NL Parser] ❌ Safe validation failed:`, validation.error.errors);
+
+      // Safe error serialization (avoid Zod circular references)
+      const errorMessages = validation.error.errors.map((err: any) => {
+        return `${err.path.join('.')}: ${err.message}`;
+      });
+
       throw new Error(
-        `Failed to parse query: ${query}\nValidation errors: ${JSON.stringify(validation.error.errors)}`
+        `Failed to parse query: ${query}\nValidation errors:\n${errorMessages.join('\n')}`
       );
     }
   }

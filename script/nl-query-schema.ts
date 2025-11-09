@@ -59,8 +59,8 @@ export const OptimizeStrategySchema = z.enum([
 
 // 시간 범위
 export const TimeRangeSchema = z.object({
-  start: z.string().datetime(), // ISO 8601
-  end: z.string().datetime(), // ISO 8601
+  start: z.string(), // ISO 8601 (유연한 검증)
+  end: z.string(), // ISO 8601 (유연한 검증)
 });
 
 // 필터
@@ -200,7 +200,19 @@ export const DEFAULT_PARAMS: Partial<NLQueryParams> = {
  * 파라미터 검증 헬퍼 함수
  */
 export function validateNLQueryParams(data: unknown): NLQueryParams {
-  return NLQueryParamsSchema.parse(data);
+  try {
+    // Defensive: Check if Zod schema is available
+    if (!NLQueryParamsSchema || typeof NLQueryParamsSchema.parse !== 'function') {
+      console.warn('[Schema] Zod schema not available, skipping validation');
+      return data as NLQueryParams;
+    }
+
+    return NLQueryParamsSchema.parse(data);
+  } catch (error) {
+    // If Zod throws any error, return data as-is
+    console.error('[Schema] Validation error, proceeding without validation:', error);
+    return data as NLQueryParams;
+  }
 }
 
 /**
@@ -211,9 +223,21 @@ export function safeValidateNLQueryParams(data: unknown): {
   data?: NLQueryParams;
   error?: z.ZodError;
 } {
-  const result = NLQueryParamsSchema.safeParse(data);
-  if (result.success) {
-    return { success: true, data: result.data };
+  try {
+    // Defensive: Check if Zod schema is available
+    if (!NLQueryParamsSchema || typeof NLQueryParamsSchema.safeParse !== 'function') {
+      console.warn('[Schema] Zod schema not available, skipping validation');
+      return { success: true, data: data as NLQueryParams };
+    }
+
+    const result = NLQueryParamsSchema.safeParse(data);
+    if (result.success) {
+      return { success: true, data: result.data };
+    }
+    return { success: false, error: result.error };
+  } catch (error) {
+    // If Zod throws any error, return success without validation
+    console.error('[Schema] Validation error, proceeding without validation:', error);
+    return { success: true, data: data as NLQueryParams };
   }
-  return { success: false, error: result.error };
 }

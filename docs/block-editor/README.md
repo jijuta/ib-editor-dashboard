@@ -194,7 +194,7 @@ bar: 항목1:100, 항목2:200, 항목3:150
 #### 1. API 키 하드코딩
 **문제**:
 ```javascript
-const GEMINI_API_KEY = 'AIzaSyCpFRVFiRf-n0dVWqokLw3yCjOvT9bwLhs';
+const GEMINI_API_KEY = 'AIzaSyAPYop7mSPAZiCuPpSm9nEccnjjsPoFHNg';
 const CLAUDE_API_KEY = 'sk-ant-api03-...';
 ```
 

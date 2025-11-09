@@ -1,0 +1,22 @@
+[Unit]
+Description=Automatic Incident Investigation Service
+After=network.target opensearch.service postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/www/ib-editor/my-app
+Environment="NODE_ENV=production"
+Environment="CRON_INTERVAL=60"
+Environment="CRON_LOOKBACK=24h"
+Environment="CRON_MAX_INCIDENTS=10"
+EnvironmentFile=/www/ib-editor/my-app/.env.local
+ExecStart=/usr/bin/npx tsx /www/ib-editor/my-app/script/cron-investigate.ts
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=incident-investigation
+
+[Install]
+WantedBy=multi-user.target

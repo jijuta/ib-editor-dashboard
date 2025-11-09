@@ -4,14 +4,14 @@
  */
 
 import { Client } from '@opensearch-project/opensearch';
-import { NLQueryParams } from './nl-query-schema.js';
+import { NLQueryParams } from './nl-query-schema';
 import {
   buildOpenSearchQuery,
   buildCorrelationQuery,
   OpenSearchQuery,
   validateQuery,
   optimizeQuery,
-} from './opensearch-query-builder.js';
+} from './opensearch-query-builder';
 
 /**
  * 쿼리 실행 결과
@@ -109,6 +109,29 @@ export class OpenSearchExecutor {
    */
   async executeNLQuery(params: NLQueryParams): Promise<QueryResult> {
     try {
+      // 🔍 Investigation 타입: 인시던트 ID로 종합 조사
+      if (params.queryType === 'investigation' && params.incident_id) {
+        console.log(`[OpenSearch Executor] Investigation mode: ${params.incident_id}`);
+        const investigation = await this.executeIncidentInvestigation(params.incident_id);
+
+        if (!investigation.success) {
+          return {
+            success: false,
+            error: investigation.error,
+          };
+        }
+
+        // Investigation 결과를 QueryResult 형식으로 변환
+        return {
+          success: true,
+          data: investigation,
+          hits: [investigation.incident], // 인시던트 기본 정보
+          total: 1,
+          took: 0, // Investigation은 여러 쿼리의 합이므로 took 계산 안 함
+          aggregations: investigation.summary,
+        };
+      }
+
       // 1. OpenSearch DSL 생성
       const query = buildOpenSearchQuery(params);
 
@@ -269,6 +292,262 @@ export class OpenSearchExecutor {
   }
 
   /**
+   * 인시던트 종합 조사 (Investigation)
+   * 인시던트 ID로 모든 관련 데이터 조회
+   */
+  async executeIncidentInvestigation(incidentId: string): Promise<{
+    success: boolean;
+    incident?: any;
+    alerts?: any[];
+    files?: any[];
+    networks?: any[];
+    processes?: any[];
+    endpoints?: any[];
+    summary?: {
+      total_alerts: number;
+      total_files: number;
+      total_networks: number;
+      total_processes: number;
+      total_endpoints: number;
+    };
+    error?: string;
+  }> {
+    try {
+      console.log(`[OpenSearch Executor] 🔍 Starting incident investigation: ${incidentId}`);
+
+      // 1. 인시던트 기본 정보
+      const incidentQuery = {
+        query: {
+          term: {
+            'incident_id.keyword': incidentId,
+          },
+        },
+        size: 1,
+        sort: [{ '@timestamp': { order: 'desc' as const } }],
+      };
+
+      const incidentResult = await this.executeQuery(
+        'logs-cortex_xdr-incidents-*',
+        incidentQuery
+      );
+
+      if (!incidentResult.success || !incidentResult.hits || incidentResult.hits.length === 0) {
+        return {
+          success: false,
+          error: `Incident ${incidentId} not found`,
+        };
+      }
+
+      const incident = incidentResult.hits[0];
+      console.log(`[OpenSearch Executor] ✅ Found incident: ${incident.description || 'N/A'}`);
+
+      // 2. 관련 알림 조회
+      const alertsQuery = {
+        query: {
+          term: {
+            'incident_id.keyword': incidentId,
+          },
+        },
+        size: 100,
+        sort: [{ '@timestamp': { order: 'desc' as const } }],
+      };
+
+      const alertsResult = await this.executeQuery(
+        'logs-cortex_xdr-alerts-*',
+        alertsQuery
+      );
+
+      const alerts = alertsResult.success ? alertsResult.hits || [] : [];
+      console.log(`[OpenSearch Executor] 📢 Found ${alerts.length} alerts`);
+      if (alerts.length > 0) {
+        console.log(`[OpenSearch Executor] 📢 First alert sample:`, JSON.stringify(alerts[0]).substring(0, 200));
+      } else {
+        console.log(`[OpenSearch Executor] ⚠️  No alerts found - Query result:`, alertsResult.success, alertsResult.total);
+      }
+
+      // 3. 파일 아티팩트 조회
+      const filesResult = await this.executeQuery(
+        'logs-cortex_xdr-file-*',
+        alertsQuery
+      );
+
+      const files = filesResult.success ? filesResult.hits || [] : [];
+      console.log(`[OpenSearch Executor] 📁 Found ${files.length} file artifacts`);
+      if (files.length > 0) {
+        console.log(`[OpenSearch Executor] 📁 First file sample:`, JSON.stringify(files[0]).substring(0, 200));
+      } else {
+        console.log(`[OpenSearch Executor] ⚠️  No files found - Query result:`, filesResult.success, filesResult.total);
+      }
+
+      // 4. 네트워크 아티팩트 조회
+      const networksResult = await this.executeQuery(
+        'logs-cortex_xdr-network-*',
+        alertsQuery
+      );
+
+      const networks = networksResult.success ? networksResult.hits || [] : [];
+      console.log(`[OpenSearch Executor] 🌐 Found ${networks.length} network artifacts`);
+
+      // 5. 프로세스 아티팩트 조회
+      const processesResult = await this.executeQuery(
+        'logs-cortex_xdr-process-*',
+        alertsQuery
+      );
+
+      const processes = processesResult.success ? processesResult.hits || [] : [];
+      console.log(`[OpenSearch Executor] ⚙️  Found ${processes.length} process artifacts`);
+
+      // 6. 엔드포인트 조회 (hosts 필드 기반)
+      let endpoints: any[] = [];
+      if (incident.hosts && Array.isArray(incident.hosts)) {
+        const endpointIds = incident.hosts
+          .map((host: string) => {
+            if (typeof host === 'string' && host.includes(':')) {
+              return host.split(':')[1];
+            }
+            return null;
+          })
+          .filter(Boolean);
+
+        if (endpointIds.length > 0) {
+          const endpointsQuery = {
+            query: {
+              terms: {
+                'endpoint_id.keyword': endpointIds,
+              },
+            },
+            size: 100,
+            sort: [{ '@timestamp': { order: 'desc' as const } }],
+          };
+
+          const endpointsResult = await this.executeQuery(
+            'logs-cortex_xdr-endpoints-*',
+            endpointsQuery
+          );
+
+          endpoints = endpointsResult.success ? endpointsResult.hits || [] : [];
+          console.log(`[OpenSearch Executor] 💻 Found ${endpoints.length} endpoints`);
+        }
+      }
+
+      // 7. CVE 취약점 조회 (호스트 이름 기반)
+      let cves: any[] = [];
+      if (endpoints.length > 0) {
+        console.log(`[OpenSearch Executor] 🔒 Fetching CVEs for ${endpoints.length} endpoints...`);
+
+        const hostnames = endpoints.map(e => e.endpoint_name || e.hostname).filter(Boolean);
+
+        if (hostnames.length > 0) {
+          // 7-1. Exact match 먼저 시도
+          const exactCvesQuery = {
+            query: {
+              bool: {
+                should: hostnames.map(hostname => ({
+                  term: {
+                    'hostname.keyword': hostname
+                  }
+                })),
+                minimum_should_match: 1
+              }
+            },
+            size: 100,
+            sort: [
+              { cvss_score: { order: 'desc' as const } },
+              { '@timestamp': { order: 'desc' as const } }
+            ]
+          };
+
+          const exactCvesResult = await this.executeQuery(
+            'logs-cortex_xdr-va-cves-*',
+            exactCvesQuery
+          );
+
+          const exactCves = exactCvesResult.success ? (exactCvesResult.hits || []).map((cve: any) => ({
+            ...cve,
+            match_type: 'exact',
+            confidence: 1.0
+          })) : [];
+
+          console.log(`[OpenSearch Executor] 🔒 Found ${exactCves.length} exact match CVEs`);
+
+          // 7-2. Fuzzy match 추가 (exact match에서 찾지 못한 호스트만)
+          const exactMatchedHostnames = new Set(exactCves.map((c: any) => c.hostname));
+          const remainingHostnames = hostnames.filter(h => !exactMatchedHostnames.has(h));
+
+          let fuzzyCves: any[] = [];
+          if (remainingHostnames.length > 0) {
+            const fuzzyCvesQuery = {
+              query: {
+                bool: {
+                  should: remainingHostnames.map(hostname => ({
+                    match: {
+                      hostname: {
+                        query: hostname,
+                        fuzziness: 'AUTO'
+                      }
+                    }
+                  })),
+                  minimum_should_match: 1
+                }
+              },
+              size: 100,
+              sort: [
+                { cvss_score: { order: 'desc' as const } },
+                { '@timestamp': { order: 'desc' as const } }
+              ]
+            };
+
+            const fuzzyCvesResult = await this.executeQuery(
+              'logs-cortex_xdr-va-cves-*',
+              fuzzyCvesQuery
+            );
+
+            fuzzyCves = fuzzyCvesResult.success ? (fuzzyCvesResult.hits || []).map((cve: any) => ({
+              ...cve,
+              match_type: 'fuzzy',
+              confidence: 0.7  // Fuzzy match는 신뢰도 낮음
+            })) : [];
+
+            console.log(`[OpenSearch Executor] 🔒 Found ${fuzzyCves.length} fuzzy match CVEs`);
+          }
+
+          // 7-3. 결합 (exact match 우선)
+          cves = [...exactCves, ...fuzzyCves];
+          console.log(`[OpenSearch Executor] 🔒 Total CVEs: ${cves.length} (exact: ${exactCves.length}, fuzzy: ${fuzzyCves.length})`);
+        }
+      }
+
+      console.log(`[OpenSearch Executor] ✅ Investigation complete`);
+
+      return {
+        success: true,
+        incident,
+        alerts,
+        files,
+        networks,
+        processes,
+        endpoints,
+        cves,
+        summary: {
+          total_alerts: alerts.length,
+          total_files: files.length,
+          total_networks: networks.length,
+          total_processes: processes.length,
+          total_endpoints: endpoints.length,
+          total_cves: cves.length,
+        },
+      };
+    } catch (error) {
+      console.error('[OpenSearch Executor] Investigation error:', error);
+      const errorMsg = formatOpenSearchError(error);
+      return {
+        success: false,
+        error: errorMsg,
+      };
+    }
+  }
+
+  /**
    * 클라이언트 닫기
    */
   async close(): Promise<void> {
@@ -307,4 +586,53 @@ export async function executeQuery(
 ): Promise<QueryResult> {
   const executor = getExecutor();
   return executor.executeQuery(indexPattern, query);
+}
+
+/**
+ * 편의 함수: 인시던트 조사 실행
+ */
+export async function executeInvestigation(
+  incidentId: string
+): Promise<{
+  success: boolean;
+  investigation_data?: any;
+  error?: string;
+}> {
+  const executor = getExecutor();
+  const result = await executor.executeIncidentInvestigation(incidentId);
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.error,
+    };
+  }
+
+  // Convert to InvestigationData format
+  return {
+    success: true,
+    investigation_data: {
+      incident_id: incidentId,
+      timestamp: new Date().toISOString(),
+      incident: result.incident,
+      alerts: result.alerts || [],
+      files: result.files || [],
+      networks: result.networks || [],
+      processes: result.processes || [],
+      endpoints: result.endpoints || [],
+      causality_chains: [], // TODO: Add causality chains query
+      registry: [], // TODO: Add registry query
+      cves: result.cves || [],
+      summary: {
+        total_alerts: result.summary?.total_alerts || 0,
+        total_files: result.summary?.total_files || 0,
+        total_networks: result.summary?.total_networks || 0,
+        total_processes: result.summary?.total_processes || 0,
+        total_endpoints: result.summary?.total_endpoints || 0,
+        total_causality_chains: 0,
+        total_registry: 0,
+        total_cves: result.summary?.total_cves || 0,
+      },
+    },
+  };
 }

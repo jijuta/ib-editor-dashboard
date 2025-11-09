@@ -85,7 +85,29 @@
         "tsx",
         "/www/ib-editor/my-app/script/nl-query-mcp.js"
       ],
-      "description": "NL-Query MCP - Natural language to OpenSearch query converter and executor. Supports 30+ date expressions, 8 data types, 5 query types (statistics, detail, chart, correlation, report)"
+      "env": {
+        "AZURE_OPENAI_ENDPOINT": "https://etech-openai.openai.azure.com/",
+        "AZURE_OPENAI_DEPLOYMENT": "gpt-4o-mini",
+        "AZURE_OPENAI_API_VERSION": "2024-02-15-preview",
+        "OPENSEARCH_URL": "http://opensearch:9200",
+        "OPENSEARCH_USER": "admin",
+        "OPENSEARCH_PASSWORD": "Admin@123456"
+      },
+      "description": "NL-Query MCP - Natural language to OpenSearch query converter and executor. Now using Azure OpenAI (gpt-4o-mini). Supports 30+ date expressions, 8 data types, 5 query types"
+    },
+    "claude-investigation": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/www/ib-editor/my-app/script/claude-investigation-mcp.js"
+      ],
+      "env": {
+        "OPENSEARCH_URL": "http://opensearch:9200",
+        "OPENSEARCH_USER": "admin",
+        "OPENSEARCH_PASSWORD": "Admin@123456",
+        "DATABASE_URL": "postgresql://postgres:postgres@postgres:5432/n8n?schema=ioclog"
+      },
+      "description": "Claude Investigation - Claude Code가 직접 인시던트를 분석하고 한글 보고서 생성. 1) collect_incident_data로 데이터 수집 2) Claude가 AI 분석 작성 3) save_analysis_and_generate_report로 보고서 생성"
     }
   }
 }
