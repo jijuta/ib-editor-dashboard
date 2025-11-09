@@ -115,6 +115,34 @@ console.log(`  \x1b[33mhttp://localhost:3000/reports/daily/daily_report_${report
 console.log('');
 
 /**
+ * 번역 함수들
+ */
+function translateSeverity(severity: string): string {
+  const translations: Record<string, string> = {
+    'critical': '치명적',
+    'high': '높음',
+    'medium': '중간',
+    'low': '낮음',
+    'informational': '정보',
+  };
+  return translations[severity?.toLowerCase()] || severity;
+}
+
+function translateStatus(status: string): string {
+  const translations: Record<string, string> = {
+    'new': '신규',
+    'under_investigation': '조사 중',
+    'resolved_threat_handled': '해결됨 (위협 처리)',
+    'resolved_known_issue': '해결됨 (알려진 이슈)',
+    'resolved_duplicate': '해결됨 (중복)',
+    'resolved_false_positive': '해결됨 (오탐)',
+    'resolved_true_positive': '해결됨 (실제 위협)',
+    'resolved_other': '해결됨 (기타)',
+  };
+  return translations[status] || status;
+}
+
+/**
  * 종합적인 HTML 보고서 생성
  * 9개 섹션으로 구성된 상세 보고서
  */
@@ -597,17 +625,17 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                             </div>
                             <div class="info-item">
                                 <div class="info-label">상태</div>
-                                <div class="info-value">${inc.incident.status || 'N/A'}</div>
+                                <div class="info-value">${translateStatus(inc.incident.status) || 'N/A'}</div>
                             </div>
                             <div class="info-item">
                                 <div class="info-label">알럿 수</div>
                                 <div class="info-value">${inc.alerts.length}개</div>
                             </div>
                         </div>
-                        ${inc.incident.manual_description ? `
+                        ${inc.incident.resolve_comment || inc.incident.manual_description ? `
                             <div style="margin-top: 1rem; padding: 1rem; background: #f1f5f9; border-radius: 6px;">
                                 <strong style="color: #1e293b;">분석가 판단:</strong>
-                                <p style="margin-top: 0.5rem; color: #475569;">${inc.incident.manual_description}</p>
+                                <p style="margin-top: 0.5rem; color: #475569;">${inc.incident.resolve_comment || inc.incident.manual_description}</p>
                             </div>
                         ` : ''}
                     </div>
@@ -658,14 +686,14 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                                     <td><div class="hash-display">${item.hash}</div></td>
                                     <td>${item.file_name}</td>
                                     <td>${item.incident_id}</td>
-                                    <td><span class="severity-badge ${item.incident_severity}">${item.incident_severity?.toUpperCase()}</span></td>
+                                    <td><span class="severity-badge ${item.incident_severity}">${translateSeverity(item.incident_severity)}</span></td>
                                     <td>
                                         ${tiMatch ? `
                                             <span class="badge ${tiMatch.verdict === 'malicious' ? 'malicious' : tiMatch.verdict === 'suspicious' ? 'suspicious' : 'benign'}">
                                                 ${tiMatch.verdict || 'Unknown'}
                                             </span>
                                             ${tiMatch.classification ? `<br><small>${tiMatch.classification}</small>` : ''}
-                                        ` : '<span class="badge unknown">No TI Data</span>'}
+                                        ` : '<span class="badge unknown">TI 데이터 없음</span>'}
                                     </td>
                                 </tr>
                                 `;
@@ -729,7 +757,7 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                                     <td>${item.domain || '-'}</td>
                                     <td>${item.country || '-'}</td>
                                     <td>${item.incident_id}</td>
-                                    <td><span class="severity-badge ${item.incident_severity}">${item.incident_severity?.toUpperCase()}</span></td>
+                                    <td><span class="severity-badge ${item.incident_severity}">${translateSeverity(item.incident_severity)}</span></td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -895,7 +923,7 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                     <tbody>
                         ${Object.entries(data.ai_analysis_data.statistics?.by_severity || {}).map(([severity, count]: [string, any]) => `
                             <tr>
-                                <td><span class="severity-badge ${severity}">${severity.toUpperCase()}</span></td>
+                                <td><span class="severity-badge ${severity}">${translateSeverity(severity)}</span></td>
                                 <td>${count}건</td>
                                 <td>${((count / summary.total_incidents) * 100).toFixed(1)}%</td>
                             </tr>
@@ -915,7 +943,7 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                     <tbody>
                         ${Object.entries(data.ai_analysis_data.statistics?.by_status || {}).map(([status, count]: [string, any]) => `
                             <tr>
-                                <td>${status}</td>
+                                <td>${translateStatus(status)}</td>
                                 <td>${count}건</td>
                                 <td>${((count / summary.total_incidents) * 100).toFixed(1)}%</td>
                             </tr>

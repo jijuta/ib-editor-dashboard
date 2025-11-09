@@ -191,16 +191,16 @@ const incidentQuery = {
     return new Date(b._source['@timestamp']).getTime() - new Date(a._source['@timestamp']).getTime();
   });
   
-  // 상위 20개 인시던트 상세 분석
-  const topIncidents = sortedIncidents.slice(0, 20);
+  // **전체 인시던트 상세 분석** (상위 20개가 아닌 전체)
+  console.log(`   전체 ${sortedIncidents.length}건 인시던트 상세 분석 시작...`);
   const detailedIncidents: any[] = [];
-  
-  for (const incident of topIncidents) {
+
+  for (const incident of sortedIncidents) {
     const inc = incident._source;
     const incidentId = inc.incident_id;
-  
+
     console.log(`   분석 중: ${incidentId} (${inc.severity})`);
-  
+
     // 관련 데이터 조회
     const detailQuery = {
       query: {
@@ -212,14 +212,14 @@ const incidentQuery = {
       },
       size: 100,
     };
-  
+
     // 파일, 네트워크, 알럿, 프로세스, 엔드포인트 조회
     const files = queryOpenSearch('logs-cortex_xdr-files-*', detailQuery).hits?.hits || [];
     const networks = queryOpenSearch('logs-cortex_xdr-networks-*', detailQuery).hits?.hits || [];
     const alerts = queryOpenSearch('logs-cortex_xdr-alerts-*', detailQuery).hits?.hits || [];
     const processes = queryOpenSearch('logs-cortex_xdr-processes-*', detailQuery).hits?.hits || [];
     const endpoints = queryOpenSearch('logs-cortex_xdr-endpoints-*', detailQuery).hits?.hits || [];
-  
+
     detailedIncidents.push({
       incident: inc,
       files: files.map((f: any) => f._source),
@@ -229,8 +229,8 @@ const incidentQuery = {
       endpoints: endpoints.map((e: any) => e._source),
     });
   }
-  
-  console.log(`✅ ${detailedIncidents.length}개 인시던트 상세 분석 완료`);
+
+  console.log(`✅ ${detailedIncidents.length}개 인시던트 상세 분석 완료 (전체 수집)`);
   
   // 3. TI 상관관계 분석
   console.log('');
