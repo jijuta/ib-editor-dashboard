@@ -136,15 +136,13 @@ echo -e "${BLUE}4단계: 최종 보고서 생성${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-echo -e "${YELLOW}⚠️  최종 보고서 스크립트를 작성 중입니다...${NC}"
-echo -e "${YELLOW}   현재는 수집된 데이터와 AI 분석 결과를 확인할 수 있습니다${NC}"
-echo ""
+npx tsx script/generate-final-report.ts "$REPORT_DATE"
 
-echo -e "${GREEN}📁 생성된 파일:${NC}"
-echo -e "  - 데이터: /tmp/daily_incidents_data_${REPORT_DATE}.json"
-echo -e "  - 프롬프트: /tmp/ai_analysis_prompt_${REPORT_DATE}.txt"
-echo -e "  - AI 분석: /tmp/ai_analysis_${REPORT_DATE}.json"
-echo ""
+if [ $? -ne 0 ]; then
+    echo ""
+    echo -e "${YELLOW}❌ 최종 보고서 생성 실패${NC}"
+    exit 1
+fi
 
 # 간단한 요약 출력
 if [ -f "/tmp/ai_analysis_${REPORT_DATE}.json" ]; then
@@ -178,8 +176,14 @@ fi
 
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}✅ 파이프라인 완료!${NC}"
+echo -e "${BLUE}✅ 전체 파이프라인 완료!${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${YELLOW}💡 다음 단계: 최종 HTML 보고서 생성 스크립트 완성 예정${NC}"
+echo -e "${GREEN}📁 최종 생성 파일:${NC}"
+echo -e "  ${GREEN}✓${NC} /tmp/daily_report_${REPORT_DATE}.html"
+echo -e "  ${GREEN}✓${NC} /tmp/daily_report_${REPORT_DATE}.md"
+echo -e "  ${GREEN}✓${NC} /tmp/daily_report_${REPORT_DATE}.json"
+echo ""
+echo -e "${YELLOW}💡 HTML 보고서 열기:${NC}"
+echo -e "  ${CYAN}xdg-open /tmp/daily_report_${REPORT_DATE}.html${NC}"
 echo ""
