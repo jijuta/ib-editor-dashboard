@@ -31,8 +31,8 @@ if (!existsSync(outputDir)) {
 // 1. 데이터 로드
 console.log('\x1b[32m1️⃣  데이터 로드 중...\x1b[0m');
 
-const dataFile = `/tmp/daily_incidents_data_${reportDate}.json`;
-const aiFile = `/tmp/ai_analysis_${reportDate}.json`;
+const dataFile = `public/reports/data/daily_incidents_data_${reportDate}.json`;
+const aiFile = `public/reports/data/ai_analysis_${reportDate}.json`;
 
 if (!existsSync(dataFile)) {
   console.error(`\x1b[31m❌ 데이터 파일을 찾을 수 없습니다: ${dataFile}\x1b[0m`);
@@ -75,6 +75,16 @@ console.log(`✅ Markdown 저장: ${mdFile}`);
 console.log('');
 console.log('\x1b[32m4️⃣  JSON 보고서 생성 중...\x1b[0m');
 
+// 호스트별 인시던트 카운트 생성
+const hostIncidentCount: Record<string, number> = {};
+data.collected_data.incidents.forEach((inc: any) => {
+  const hosts = inc.incident.hosts || [];
+  hosts.forEach((hostStr: string) => {
+    const hostname = hostStr.split(':')[0]; // "hostname:guid" 형식에서 hostname만 추출
+    hostIncidentCount[hostname] = (hostIncidentCount[hostname] || 0) + 1;
+  });
+});
+
 const jsonReport = {
   report_date: reportDate,
   generated_at: new Date().toISOString(),
@@ -91,7 +101,10 @@ const jsonReport = {
     files_count: inc.files.length,
     networks_count: inc.networks.length,
   })),
-  statistics: data.ai_analysis_data.statistics,
+  statistics: {
+    ...(data.ai_analysis_data.statistics || {}),
+    by_host: hostIncidentCount,
+  },
 };
 
 const jsonFile = `${outputDir}/daily_report_${reportDate}.json`;
@@ -156,42 +169,146 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
     inc.incident.severity === 'critical' || inc.incident.severity === 'high'
   );
 
-  // 모든 해시 수집
+  // 모든 해시 수집 (리스트: Unknown TI만 표시, Benign 제외)
   const allHashes = new Set<string>();
   const allHashesWithContext: any[] = [];
+  const seenHashes = new Set<string>(); // 완전 중복 제거용 (해시만으로)
+
+  // 통계용
+  let totalHashCount = 0;
+  let whitelistHashCount = 0; // Benign (화이트리스트)
+  let threatHashCount = 0; // Malicious/Suspicious
+  let unknownHashCount = 0; // Unknown TI
+
   incidents.forEach((inc: any) => {
     inc.files.forEach((file: any) => {
       if (file.sha256 || file.file_sha256) {
         const hash = file.sha256 || file.file_sha256;
-        allHashes.add(hash);
-        allHashesWithContext.push({
-          hash: hash,
-          file_name: file.file_name || file.file_path || 'Unknown',
-          incident_id: inc.incident.incident_id,
-          incident_severity: inc.incident.severity,
-        });
+
+        // 이미 본 해시는 스킵 (완전 중복 제거)
+        if (seenHashes.has(hash)) {
+          return;
+        }
+
+        seenHashes.add(hash);
+        totalHashCount++;
+
+        // TI 매칭 확인
+        const tiMatch = data.collected_data.ti_data?.find((ti: any) => ti.hash === hash);
+
+        if (tiMatch) {
+          // TI 정보가 있는 해시
+          const verdict = (tiMatch.verdict || '').toLowerCase();
+          if (verdict === 'benign') {
+            // 화이트리스트 (리스트에 표시 안 함)
+            whitelistHashCount++;
+          } else {
+            // 위협 해시 (Malicious/Suspicious)
+            threatHashCount++;
+            allHashes.add(hash);
+            allHashesWithContext.push({
+              hash: hash,
+              file_name: file.file_name || file.file_path || 'Unknown',
+              incident_id: inc.incident.incident_id,
+              incident_severity: inc.incident.severity,
+              verdict: tiMatch.verdict,
+              classification: tiMatch.classification,
+            });
+          }
+        } else {
+          // Unknown TI (위협 정보 없음, 검사 필요)
+          unknownHashCount++;
+          allHashes.add(hash);
+          allHashesWithContext.push({
+            hash: hash,
+            file_name: file.file_name || file.file_path || 'Unknown',
+            incident_id: inc.incident.incident_id,
+            incident_severity: inc.incident.severity,
+            verdict: null,
+            classification: null,
+          });
+        }
       }
     });
   });
 
-  // 모든 네트워크 아티팩트 수집
+  // 모든 네트워크 아티팩트 수집 (내부 도메인 제외, 중복 제거)
   const allIPs = new Set<string>();
   const allDomains = new Set<string>();
   const allNetworksWithContext: any[] = [];
+  const seenIPs = new Set<string>(); // 완전 중복 제거용
+
+  // 내부/외부 IP 카운트 (통계용)
+  let internalIPCount = 0;
+  let externalIPCount = 0;
+  let benignNetworkCount = 0;  // Benign 네트워크 카운트
+
+  // 내부 IP 패턴 (RFC1918)
+  const isInternalIP = (ip: string) => {
+    if (!ip || ip === '-') return true;
+    return /^10\./.test(ip) ||
+           /^172\.(1[6-9]|2[0-9]|3[01])\./.test(ip) ||
+           /^192\.168\./.test(ip) ||
+           /^127\./.test(ip) ||
+           /^169\.254\./.test(ip);
+  };
+
+  // 내부 도메인 패턴 (제외할 도메인)
+  const internalDomainPatterns = [
+    /^$/, // 빈 문자열
+    /^-$/, // 대시만
+    /localhost/i,
+    /\.local$/i,
+    /\.internal$/i,
+    /^10\./,
+    /^172\.(1[6-9]|2[0-9]|3[01])\./,
+    /^192\.168\./,
+  ];
+
+  const isInternalDomain = (domain: string) => {
+    if (!domain || domain === '-') return true;
+    return internalDomainPatterns.some(pattern => pattern.test(domain));
+  };
+
   incidents.forEach((inc: any) => {
     inc.networks.forEach((net: any) => {
-      if (net.remote_ip) {
-        allIPs.add(net.remote_ip);
-        allNetworksWithContext.push({
-          ip: net.remote_ip,
-          domain: net.domain || '',
-          country: net.country || '',
-          incident_id: inc.incident.incident_id,
-          incident_severity: inc.incident.severity,
-        });
-      }
-      if (net.domain) {
-        allDomains.add(net.domain);
+      const ip = net.network_remote_ip || net.remote_ip || net.dst_ip || net.action_external_ip;
+      const domain = net.network_domain || net.domain;
+      const reputation = net.reputation || 'unknown';
+
+      if (ip && !seenIPs.has(ip)) {
+        seenIPs.add(ip);
+
+        // 내부/외부 카운트
+        if (isInternalIP(ip)) {
+          internalIPCount++;
+        } else {
+          externalIPCount++;
+
+          // Benign 네트워크 필터링 (파일 해시처럼)
+          if (reputation === 'benign') {
+            benignNetworkCount++;
+            // 보고서에는 표시하지 않음 (카운트만)
+            return;
+          }
+
+          // Unknown/Malicious만 리스트에 추가
+          allIPs.add(ip);
+
+          // 도메인이 내부가 아닌 경우만 추가
+          if (domain && !isInternalDomain(domain)) {
+            allDomains.add(domain);
+          }
+
+          allNetworksWithContext.push({
+            ip: ip,
+            domain: (domain && !isInternalDomain(domain)) ? domain : '-',
+            country: net.country || '-',
+            reputation: reputation,  // reputation 추가
+            incident_id: inc.incident.incident_id,
+            incident_severity: inc.incident.severity,
+          });
+        }
       }
     });
   });
@@ -199,19 +316,95 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
   // 모든 CVE 수집
   const allCVEs = new Set<string>();
   const allCVEsWithContext: any[] = [];
+
+  // 호스트별 인시던트 카운트
+  const hostIncidentCount: Record<string, number> = {};
+
   incidents.forEach((inc: any) => {
-    inc.endpoints.forEach((endpoint: any) => {
-      if (endpoint.endpoint_cves && Array.isArray(endpoint.endpoint_cves)) {
-        endpoint.endpoint_cves.forEach((cve: string) => {
-          allCVEs.add(cve);
+    // CVE 추출: endpoints가 있으면 사용, 없으면 description에서 추출
+    if (inc.endpoints && inc.endpoints.length > 0) {
+      inc.endpoints.forEach((endpoint: any) => {
+        if (endpoint.endpoint_cves && Array.isArray(endpoint.endpoint_cves)) {
+          endpoint.endpoint_cves.forEach((cve: string) => {
+            allCVEs.add(cve);
+            allCVEsWithContext.push({
+              cve: cve,
+              endpoint_name: endpoint.endpoint_name || endpoint.host_name,
+              os_type: endpoint.os_type,
+              incident_id: inc.incident.incident_id,
+            });
+          });
+        }
+      });
+    } else {
+      // endpoints가 없으면 description, alerts에서 CVE-XXXX-XXXXX 패턴 추출
+      const cvePattern = /CVE-\d{4}-\d{4,7}/gi;
+      const description = inc.incident.description || '';
+      const matches = description.match(cvePattern);
+      if (matches) {
+        matches.forEach((cve: string) => {
+          allCVEs.add(cve.toUpperCase());
           allCVEsWithContext.push({
-            cve: cve,
-            endpoint_name: endpoint.endpoint_name || endpoint.host_name,
-            os_type: endpoint.os_type,
+            cve: cve.toUpperCase(),
+            endpoint_name: (inc.incident.hosts?.[0] || '').split(':')[0] || 'Unknown',
+            os_type: 'Unknown',
             incident_id: inc.incident.incident_id,
           });
         });
       }
+
+      // alerts에서도 CVE 추출
+      if (inc.alerts && inc.alerts.length > 0) {
+        inc.alerts.forEach((alert: any) => {
+          const alertName = alert.alert_name || alert.name || '';
+          const alertMatches = alertName.match(cvePattern);
+          if (alertMatches) {
+            alertMatches.forEach((cve: string) => {
+              allCVEs.add(cve.toUpperCase());
+              allCVEsWithContext.push({
+                cve: cve.toUpperCase(),
+                endpoint_name: (inc.incident.hosts?.[0] || '').split(':')[0] || 'Unknown',
+                os_type: 'Unknown',
+                incident_id: inc.incident.incident_id,
+              });
+            });
+          }
+        });
+      }
+    }
+
+    // 호스트별 인시던트 카운트
+    const hosts = inc.incident.hosts || [];
+    hosts.forEach((hostStr: string) => {
+      const hostname = hostStr.split(':')[0]; // "hostname:guid" 형식에서 hostname만 추출
+      hostIncidentCount[hostname] = (hostIncidentCount[hostname] || 0) + 1;
+    });
+  });
+
+  // MITRE ATT&CK 데이터 수집 (incidents에서 직접)
+  const allMitreTechniques = new Set<string>();
+  const mitreTactics: Record<string, number> = {};
+  const tacticToEndpoints: Record<string, Set<string>> = {}; // 전술별 엔드포인트 추적
+
+  incidents.forEach((inc: any) => {
+    const techniques = inc.incident.mitre_techniques_ids_and_names || [];
+    const tactics = inc.incident.mitre_tactics_ids_and_names || [];
+    const hosts = inc.incident.hosts || [];
+
+    techniques.forEach((tech: string) => {
+      allMitreTechniques.add(tech);
+    });
+
+    tactics.forEach((tactic: string) => {
+      mitreTactics[tactic] = (mitreTactics[tactic] || 0) + 1;
+
+      // 전술별 엔드포인트 추적
+      if (!tacticToEndpoints[tactic]) {
+        tacticToEndpoints[tactic] = new Set();
+      }
+      hosts.forEach((host: string) => {
+        tacticToEndpoints[tactic].add(host);
+      });
     });
   });
 
@@ -650,24 +843,28 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                 <div class="info-grid" style="margin-bottom: 1.5rem;">
                     <div class="info-item">
                         <div class="info-label">총 해시 수</div>
-                        <div class="info-value">${allHashes.size}개</div>
+                        <div class="info-value">${totalHashCount}개</div>
                     </div>
                     <div class="info-item">
-                        <div class="info-label">TI 매칭</div>
-                        <div class="info-value">${data.collected_data.ti_data?.length || 0}개</div>
+                        <div class="info-label">화이트리스트</div>
+                        <div class="info-value">${whitelistHashCount}개</div>
                     </div>
                     <div class="info-item">
-                        <div class="info-label">위험 파일</div>
-                        <div class="info-value">${data.ai_analysis_data.threat_intelligence?.threat_files?.length || 0}개</div>
+                        <div class="info-label">위협 해시</div>
+                        <div class="info-value">${threatHashCount}개</div>
                     </div>
                     <div class="info-item">
-                        <div class="info-label">의심 파일</div>
-                        <div class="info-value">${data.ai_analysis_data.threat_intelligence?.suspicious_files?.length || 0}개</div>
+                        <div class="info-label">Unknown (검사필요)</div>
+                        <div class="info-value">${unknownHashCount}개</div>
                     </div>
                 </div>
 
+
                 ${allHashesWithContext.length > 0 ? `
-                    <h3 class="section-subtitle">전체 파일 해시 리스트</h3>
+                    <h3 class="section-subtitle">검사 필요 파일 해시 리스트 (Unknown TI)</h3>
+                    <p style="color: #64748b; margin-bottom: 1rem; font-size: 0.875rem;">
+                        ※ 화이트리스트(Benign) 파일은 제외되었습니다. 아래는 위협 정보가 없어 추가 검사가 필요한 파일 목록입니다.
+                    </p>
                     <table class="table">
                         <thead>
                             <tr>
@@ -680,7 +877,6 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                         </thead>
                         <tbody>
                             ${allHashesWithContext.map((item: any) => {
-                                const tiMatch = data.collected_data.ti_data?.find((ti: any) => ti.hash === item.hash);
                                 return `
                                 <tr>
                                     <td><div class="hash-display">${item.hash}</div></td>
@@ -688,19 +884,19 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                                     <td>${item.incident_id}</td>
                                     <td><span class="severity-badge ${item.incident_severity}">${translateSeverity(item.incident_severity)}</span></td>
                                     <td>
-                                        ${tiMatch ? `
-                                            <span class="badge ${tiMatch.verdict === 'malicious' ? 'malicious' : tiMatch.verdict === 'suspicious' ? 'suspicious' : 'benign'}">
-                                                ${tiMatch.verdict || 'Unknown'}
+                                        ${item.verdict ? `
+                                            <span class="badge ${item.verdict === 'malicious' ? 'malicious' : item.verdict === 'suspicious' ? 'suspicious' : 'unknown'}">
+                                                ${item.verdict}
                                             </span>
-                                            ${tiMatch.classification ? `<br><small>${tiMatch.classification}</small>` : ''}
-                                        ` : '<span class="badge unknown">TI 데이터 없음</span>'}
+                                            ${item.classification ? `<br><small>${item.classification}</small>` : ''}
+                                        ` : '<span class="badge" style="background: #f59e0b; color: #fff;">Unknown TI</span>'}
                                     </td>
                                 </tr>
                                 `;
                             }).join('')}
                         </tbody>
                     </table>
-                ` : '<div class="no-data">파일 아티팩트가 없습니다.</div>'}
+                ` : '<div class="no-data">검사가 필요한 파일이 없습니다. (모든 파일이 화이트리스트 또는 위협 해시로 분류됨)</div>'}
 
                 ${data.ai_analysis_data.threat_intelligence?.threat_files?.length > 0 ? `
                     <h3 class="section-subtitle">위협 파일 상세 분석</h3>
@@ -722,50 +918,163 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                 <div class="info-grid" style="margin-bottom: 1.5rem;">
                     <div class="info-item">
                         <div class="info-label">총 IP 수</div>
-                        <div class="info-value">${allIPs.size}개</div>
+                        <div class="info-value">${internalIPCount + externalIPCount}개</div>
                     </div>
                     <div class="info-item">
-                        <div class="info-label">총 도메인 수</div>
-                        <div class="info-value">${allDomains.size}개</div>
+                        <div class="info-label">내부 IP</div>
+                        <div class="info-value">${internalIPCount}개</div>
                     </div>
                     <div class="info-item">
-                        <div class="info-label">의심 국가</div>
-                        <div class="info-value">${ai.network_threat_analysis?.suspicious_countries?.length || 0}개</div>
+                        <div class="info-label">외부 IP</div>
+                        <div class="info-value">${externalIPCount}개</div>
                     </div>
                     <div class="info-item">
-                        <div class="info-label">C2 지표</div>
-                        <div class="info-value">${ai.network_threat_analysis?.c2_indicators?.length || 0}개</div>
+                        <div class="info-label">Benign 네트워크</div>
+                        <div class="info-value" style="color: #10b981;">${benignNetworkCount}개</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">위험 네트워크</div>
+                        <div class="info-value" style="color: #f59e0b;">${allNetworksWithContext.length}개</div>
                     </div>
                 </div>
 
+                ${(internalIPCount + externalIPCount) > 0 ? `
+                    <h3 class="section-subtitle">내부/외부 IP 분포</h3>
+                    <canvas id="internalExternalChart" style="max-height: 300px; margin: 1rem 0;"></canvas>
+                    <script>
+                        new Chart(document.getElementById('internalExternalChart'), {
+                            type: 'doughnut',
+                            data: {
+                                labels: ['내부 IP', '외부 IP'],
+                                datasets: [{
+                                    data: [${internalIPCount}, ${externalIPCount}],
+                                    backgroundColor: [
+                                        'rgba(59, 130, 246, 0.8)',  // blue for Internal
+                                        'rgba(239, 68, 68, 0.8)'    // red for External
+                                    ],
+                                    borderColor: [
+                                        'rgba(59, 130, 246, 1)',
+                                        'rgba(239, 68, 68, 1)'
+                                    ],
+                                    borderWidth: 1
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: true,
+                                plugins: {
+                                    legend: {
+                                        position: 'right'
+                                    },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function(context) {
+                                                const total = ${internalIPCount + externalIPCount};
+                                                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                                return context.label + ': ' + context.parsed + '개 (' + percentage + '%)';
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    </script>
+                ` : ''}
+
                 ${allNetworksWithContext.length > 0 ? `
-                    <h3 class="section-subtitle">전체 네트워크 연결 리스트</h3>
+                    <h3 class="section-subtitle">외부 네트워크 연결 리스트</h3>
+                    <p style="color: #64748b; margin-bottom: 1rem; font-size: 0.875rem;">
+                        ※ 내부 IP 및 Benign 네트워크는 제외되었습니다. Unknown/Malicious 네트워크만 표시됩니다.
+                    </p>
                     <table class="table">
                         <thead>
                             <tr>
                                 <th>IP 주소</th>
                                 <th>도메인</th>
                                 <th>국가</th>
+                                <th>위험도</th>
                                 <th>인시던트</th>
-                                <th>심각도</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${allNetworksWithContext.map((item: any) => `
+                            ${allNetworksWithContext.map((item: any) => {
+                                const reputationBadge = item.reputation === 'malicious'
+                                    ? '<span class="badge malicious">Malicious</span>'
+                                    : item.reputation === 'unknown'
+                                    ? '<span class="badge unknown">Unknown</span>'
+                                    : '<span class="badge benign">Benign</span>';
+                                return `
                                 <tr>
                                     <td><code>${item.ip}</code></td>
                                     <td>${item.domain || '-'}</td>
                                     <td>${item.country || '-'}</td>
-                                    <td>${item.incident_id}</td>
-                                    <td><span class="severity-badge ${item.incident_severity}">${translateSeverity(item.incident_severity)}</span></td>
-                                </tr>
-                            `).join('')}
+                                    <td>${reputationBadge}</td>
+                                    <td>${item.incident_id} <span class="severity-badge ${item.incident_severity}">${translateSeverity(item.incident_severity)}</span></td>
+                                </tr>`;
+                            }).join('')}
                         </tbody>
                     </table>
                 ` : '<div class="no-data">네트워크 아티팩트가 없습니다. 모든 인시던트에서 외부 네트워크 연결이 탐지되지 않았습니다.</div>'}
 
+                <h3 class="section-subtitle">국가별 분포</h3>
+                ${allNetworksWithContext.length > 0 ? `
+                    <canvas id="countryChart" style="max-height: 300px; margin: 1rem 0;"></canvas>
+                    <script>
+                        // 국가별 카운트
+                        const countryData = {};
+                        ${JSON.stringify(allNetworksWithContext)}.forEach(item => {
+                            if (item.country && item.country !== '-') {
+                                countryData[item.country] = (countryData[item.country] || 0) + 1;
+                            }
+                        });
+
+                        const sortedCountries = Object.entries(countryData)
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 10);
+
+                        new Chart(document.getElementById('countryChart'), {
+                            type: 'bar',
+                            data: {
+                                labels: sortedCountries.map(c => c[0]),
+                                datasets: [{
+                                    label: '연결 수',
+                                    data: sortedCountries.map(c => c[1]),
+                                    backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                                    borderColor: 'rgba(59, 130, 246, 1)',
+                                    borderWidth: 1
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: true,
+                                plugins: {
+                                    legend: { display: false }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        ticks: { precision: 0 }
+                                    }
+                                }
+                            }
+                        });
+                    </script>
+                ` : ''}
+
                 <h3 class="section-subtitle">네트워크 위협 분석</h3>
                 <p style="line-height: 1.8;">${ai.network_threat_analysis?.lateral_movement || '네트워크 위협 분석 정보가 없습니다.'}</p>
+
+                <h3 class="section-subtitle">분석가 의견</h3>
+                ${incidents.some((inc: any) => inc.incident.resolve_comment) ? `
+                    <div style="background: #f8fafc; border-left: 3px solid #3b82f6; padding: 1rem; margin-top: 1rem; border-radius: 6px;">
+                        ${incidents.filter((inc: any) => inc.incident.resolve_comment).slice(0, 3).map((inc: any) => `
+                            <div style="margin-bottom: 1rem;">
+                                <strong>인시던트 ${inc.incident.incident_id}:</strong>
+                                <p style="margin-top: 0.5rem; color: #475569;">${inc.incident.resolve_comment}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : '<p>분석가 의견이 없습니다.</p>'}
             </section>
 
             <!-- 섹션 5: MITRE ATT&CK 분석 -->
@@ -773,21 +1082,52 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                 <h2 class="section-title">5. MITRE ATT&CK 분석</h2>
 
                 <h3 class="section-subtitle">주요 전술 (Tactics)</h3>
-                ${Object.keys(data.ai_analysis_data.mitre_attack?.tactics_distribution || {}).length > 0 ? `
+                ${Object.keys(mitreTactics).length > 0 ? `
                     <div style="margin-bottom: 1.5rem;">
-                        ${Object.entries(data.ai_analysis_data.mitre_attack.tactics_distribution).slice(0, 5).map(([tactic, count]: [string, any], index: number) => `
+                        ${Object.entries(mitreTactics).sort((a: [string, number], b: [string, number]) => b[1] - a[1]).slice(0, 5).map(([tactic, count]: [string, any], index: number) => `
                             <div style="margin-bottom: 0.5rem;">
                                 <strong>${index + 1}. ${tactic}</strong>
                                 <span style="color: #64748b; margin-left: 0.5rem;">(${count}회)</span>
                             </div>
                         `).join('')}
                     </div>
-                ` : '<div class="no-data">MITRE ATT&CK 데이터가 없습니다.</div>'}
+                ` : '<div class="no-data">MITRE ATT&CK 전술 데이터가 없습니다.</div>'}
+
+                <h3 class="section-subtitle">주요 전술 엔드포인트 리스트</h3>
+                ${Object.keys(mitreTactics).length > 0 ? `
+                    <div style="margin-top: 1rem;">
+                        ${Object.entries(mitreTactics)
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 5)
+                            .map(([tactic, count]) => {
+                                const endpoints = tacticToEndpoints[tactic];
+                                return `
+                                    <div style="background: #f1f5f9; border-left: 3px solid #3b82f6; padding: 1rem; margin-bottom: 1rem; border-radius: 6px;">
+                                        <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;">
+                                            ${tactic}
+                                            <span style="color: #64748b; margin-left: 0.5rem; font-weight: normal;">(${count}회 탐지)</span>
+                                        </div>
+                                        <div style="margin-top: 0.5rem;">
+                                            <strong style="font-size: 0.875rem; color: #475569;">영향받은 엔드포인트 (${endpoints?.size || 0}대):</strong>
+                                            <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                                ${endpoints && endpoints.size > 0 ?
+                                                    Array.from(endpoints).map(host =>
+                                                        `<span style="background: #ffffff; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.875rem; border: 1px solid #e2e8f0;">${host}</span>`
+                                                    ).join('') :
+                                                    '<span style="color: #94a3b8; font-size: 0.875rem;">엔드포인트 정보 없음</span>'
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                    </div>
+                ` : '<div class="no-data">전술별 엔드포인트 데이터가 없습니다.</div>'}
 
                 <h3 class="section-subtitle">탐지된 기법 (Techniques)</h3>
                 <div>
-                    ${(data.ai_analysis_data.mitre_attack?.techniques || []).length > 0 ?
-                        data.ai_analysis_data.mitre_attack.techniques.map((tech: string) => `
+                    ${allMitreTechniques.size > 0 ?
+                        Array.from(allMitreTechniques).map((tech: string) => `
                             <span class="mitre-technique">${tech}</span>
                         `).join('') :
                         '<div class="no-data">탐지된 MITRE 기법이 없습니다.</div>'
@@ -795,7 +1135,97 @@ function generateComprehensiveHTML(date: string, data: any, ai: any): string {
                 </div>
 
                 <h3 class="section-subtitle">공격 체인 분석</h3>
-                <p style="line-height: 1.8;">${ai.mitre_attack_analysis?.attack_chain_assessment || 'MITRE 공격 체인 분석이 없습니다.'}</p>
+                ${ai.mitre_analysis?.attack_chain ? `
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                            ${Object.entries(ai.mitre_analysis.attack_chain)
+                                .sort((a: any, b: any) => a[0].localeCompare(b[0]))
+                                .map(([key, stage]: [string, any], index: number, arr: any[]) => `
+                                <div style="flex: 1; min-width: 150px; text-align: center;">
+                                    <div style="background: rgba(255,255,255,0.95); border-radius: 8px; padding: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                                        <div style="font-weight: 700; color: #5b21b6; font-size: 0.75rem; margin-bottom: 0.5rem;">
+                                            ${stage.tactic?.split(' - ')[0] || 'Stage ' + (index + 1)}
+                                        </div>
+                                        <div style="font-size: 0.875rem; color: #1e293b; font-weight: 600; margin-bottom: 0.5rem;">
+                                            ${stage.tactic?.split(' - ')[1] || 'Unknown'}
+                                        </div>
+                                        <div style="font-size: 0.75rem; color: #64748b;">
+                                            ${(stage.incidents || []).length}건
+                                        </div>
+                                    </div>
+                                    ${index < arr.length - 1 ? '<div style="position: absolute; right: -1rem; top: 50%; transform: translateY(-50%); color: white; font-size: 1.5rem;">→</div>' : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 1.5rem;">
+                        <h4 style="font-size: 1rem; font-weight: 600; color: #475569; margin-bottom: 1rem;">단계별 상세 분석</h4>
+                        ${Object.entries(ai.mitre_analysis.attack_chain).map(([key, stage]: [string, any]) => `
+                            <div style="background: #f8fafc; border-left: 4px solid #3b82f6; padding: 1rem; margin-bottom: 1rem; border-radius: 6px;">
+                                <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;">
+                                    ${stage.tactic}
+                                </div>
+                                <div style="font-size: 0.875rem; color: #475569; line-height: 1.6;">
+                                    ${stage.description}
+                                </div>
+                                ${(stage.techniques || []).length > 0 ? `
+                                    <div style="margin-top: 0.5rem; font-size: 0.75rem; color: #64748b;">
+                                        <strong>기법:</strong> ${(stage.techniques || []).join(', ')}
+                                    </div>
+                                ` : ''}
+                                ${(stage.incidents || []).length > 0 ? `
+                                    <div style="margin-top: 0.5rem; font-size: 0.75rem; color: #64748b;">
+                                        <strong>관련 인시던트:</strong> ${(stage.incidents || []).join(', ')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${ai.mitre_analysis.kill_chain_assessment ? `
+                        <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 1.5rem; margin-top: 1.5rem; border-radius: 6px;">
+                            <h4 style="font-size: 1rem; font-weight: 600; color: #991b1b; margin-bottom: 1rem;">Kill Chain 완성도 평가</h4>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                                <div>
+                                    <div style="font-size: 0.75rem; color: #7f1d1d;">완성도</div>
+                                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">${ai.mitre_analysis.kill_chain_assessment.completeness}</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 0.75rem; color: #7f1d1d;">위협 수준</div>
+                                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc2626;">${ai.mitre_analysis.kill_chain_assessment.threat_level}</div>
+                                </div>
+                            </div>
+                            <div style="font-size: 0.875rem; color: #7f1d1d; line-height: 1.6;">
+                                ${ai.mitre_analysis.kill_chain_assessment.reasoning}
+                            </div>
+                            ${(ai.mitre_analysis.kill_chain_assessment.missing_stages || []).length > 0 ? `
+                                <div style="margin-top: 1rem; font-size: 0.875rem; color: #78350f;">
+                                    <strong>누락된 단계:</strong> ${(ai.mitre_analysis.kill_chain_assessment.missing_stages || []).join(', ')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                ` : '<p style="color: #64748b;">MITRE 공격 체인 분석이 없습니다.</p>'}
+
+                <h3 class="section-subtitle">보안 분석가 의견</h3>
+                ${ai.mitre_analysis?.summary ? `
+                    <div style="background: #f0fdf4; border-left: 3px solid #22c55e; padding: 1rem; margin-top: 1rem; border-radius: 6px;">
+                        <p style="line-height: 1.8; color: #14532d;">
+                            ${ai.mitre_analysis.summary}
+                        </p>
+                    </div>
+                ` : allMitreTechniques.size > 0 ? `
+                    <div style="background: #fef3c7; border-left: 3px solid #f59e0b; padding: 1rem; margin-top: 1rem; border-radius: 6px;">
+                        <p style="line-height: 1.8; color: #78350f;">
+                            <strong>탐지된 ${allMitreTechniques.size}개 기법 분석:</strong><br>
+                            ${Array.from(allMitreTechniques).length > 5 ?
+                                `다수의 MITRE 기법이 탐지되었습니다. 특히 Privilege Escalation, Defense Evasion, Process Injection 관련 기법이 포함되어 있어 주의가 필요합니다. 각 기법별로 탐지 규칙을 재검토하고, False Positive 여부를 확인하세요.` :
+                                `소수의 MITRE 기법이 탐지되었습니다. 각 기법이 실제 위협인지 정상 소프트웨어 동작인지 확인이 필요합니다.`
+                            }
+                        </p>
+                    </div>
+                ` : '<div class="no-data">MITRE 기법 분석 의견이 없습니다.</div>'}
             </section>
 
             <!-- 섹션 6: 엔드포인트 및 CVE 분석 -->
@@ -1256,7 +1686,26 @@ ${(data.ai_analysis_data.mitre_attack?.techniques || []).slice(0, 5).map((tech: 
 
 ### 공격 체인 분석
 
-${ai.mitre_attack_analysis?.attack_chain_assessment || 'MITRE 공격 체인 분석이 없습니다.'}
+${ai.mitre_analysis?.attack_chain ? `
+**APT 멀티 스테이지 공격 체인 탐지**
+
+${Object.entries(ai.mitre_analysis.attack_chain)
+  .sort((a: any, b: any) => a[0].localeCompare(b[0]))
+  .map(([key, stage]: [string, any], index: number) => `
+**${index + 1}. ${stage.tactic}**
+- ${stage.description}
+${(stage.techniques || []).length > 0 ? `- 기법: ${(stage.techniques || []).join(', ')}` : ''}
+- 관련 인시던트: ${(stage.incidents || []).join(', ')}
+`).join('\n')}
+
+${ai.mitre_analysis.kill_chain_assessment ? `
+**Kill Chain 완성도 평가**
+- 완성도: ${ai.mitre_analysis.kill_chain_assessment.completeness}
+- 위협 수준: ${ai.mitre_analysis.kill_chain_assessment.threat_level}
+- 평가: ${ai.mitre_analysis.kill_chain_assessment.reasoning}
+${(ai.mitre_analysis.kill_chain_assessment.missing_stages || []).length > 0 ? `- 누락된 단계: ${(ai.mitre_analysis.kill_chain_assessment.missing_stages || []).join(', ')}` : ''}
+` : ''}
+` : 'MITRE 공격 체인 분석이 없습니다.'}
 
 ---
 
