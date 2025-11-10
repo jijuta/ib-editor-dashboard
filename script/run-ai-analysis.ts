@@ -19,7 +19,7 @@ console.log('\x1b[35m━━━━━━━━━━━━━━━━━━━�
 console.log('');
 
 // 1. 프롬프트 파일 확인
-const promptFile = `/tmp/ai_analysis_prompt_${reportDate}.txt`;
+const promptFile = `public/reports/data/ai_analysis_prompt_${reportDate}.txt`;
 
 if (!existsSync(promptFile)) {
   console.error(`\x1b[31m❌ 프롬프트 파일을 찾을 수 없습니다: ${promptFile}\x1b[0m`);
@@ -82,7 +82,7 @@ if (claudeAvailable) {
     }
 
     // 4. 결과 저장
-    const outputFile = `/tmp/ai_analysis_${reportDate}.json`;
+    const outputFile = `public/reports/data/ai_analysis_${reportDate}.json`;
     writeFileSync(outputFile, JSON.stringify(parsedResult, null, 2));
 
     console.log('');
@@ -100,7 +100,7 @@ if (claudeAvailable) {
     console.error(error.message);
     console.log('');
     console.log('\x1b[33m수동으로 실행하려면:\x1b[0m');
-    console.log(`\x1b[33m  cat ${promptFile} | claude --print > /tmp/ai_analysis_${reportDate}.json\x1b[0m`);
+    console.log(`\x1b[33m  cat ${promptFile} | claude --print > public/reports/data/ai_analysis_${reportDate}.json\x1b[0m`);
     console.log('');
     process.exit(1);
   }
@@ -114,7 +114,7 @@ if (claudeAvailable) {
   console.log('\x1b[32m  npm install -g @anthropic-ai/claude-cli\x1b[0m');
   console.log('');
   console.log('\x1b[36m📋 방법 2: 수동으로 프롬프트 실행\x1b[0m');
-  console.log(`\x1b[32m  cat ${promptFile} | claude --print > /tmp/ai_analysis_${reportDate}.json\x1b[0m`);
+  console.log(`\x1b[32m  cat ${promptFile} | claude --print > public/reports/data/ai_analysis_${reportDate}.json\x1b[0m`);
   console.log('');
   console.log('\x1b[36m📋 방법 3: Claude Code에서 직접 실행\x1b[0m');
   console.log('\x1b[33m  1. 아래 프롬프트를 복사\x1b[0m');
@@ -131,7 +131,7 @@ if (claudeAvailable) {
   console.log('\x1b[36m━━━━━━━━━━━ 프롬프트 종료 ━━━━━━━━━━━\x1b[0m');
   console.log('');
   console.log('\x1b[33m💡 Claude Code 응답을 받은 후:\x1b[0m');
-  console.log(`\x1b[33m   JSON 부분만 복사하여 /tmp/ai_analysis_${reportDate}.json 에 저장\x1b[0m`);
+  console.log(`\x1b[33m   JSON 부분만 복사하여 public/reports/data/ai_analysis_${reportDate}.json 에 저장\x1b[0m`);
   console.log('');
   console.log('\x1b[33m그 다음:\x1b[0m');
   console.log(`\x1b[33m  npx tsx script/generate-final-report.ts ${reportDate}\x1b[0m`);

@@ -3,14 +3,20 @@
  * 고급 일간 인시던트 데이터 수집기
  * 개별 인시던트 분석 수준의 상세한 데이터 수집
  * - 7개 인덱스 통합 (incidents, files, networks, alerts, processes, endpoints, causality_chains)
- * - TI 상관관계 분석 (PostgreSQL)
+ * - TI 상관관계 분석 (Benign Hash Cache + Vector Search)
  * - AI 분석용 데이터 준비
  */
 
+import { config } from 'dotenv';
 import { execSync } from 'child_process';
-import { writeFileSync, readFileSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import pg from 'pg';
 const { Client } = pg;
+import { getBenignHashCache } from '../src/lib/benign-hash-cache.js';
+import { hybridThreatIntelSearch } from '../src/lib/hybrid-search.js';
+
+// Load .env.local
+config({ path: '.env.local' });
 
 // 환경 변수
 const OPENSEARCH_URL = process.env.OPENSEARCH_URL || 'http://opensearch:9200';
@@ -51,41 +57,81 @@ function queryOpenSearch(index: string, query: any): any {
   }
 }
 
-// PostgreSQL TI 조회
+// Benign Hash Cache + Vector Search TI 조회 (ib-poral 방식)
 async function queryTI(hashes: string[]): Promise<any[]> {
   if (hashes.length === 0) return [];
 
-  const client = new Client({
-    host: PG_HOST,
-    port: PG_PORT,
-    database: PG_DATABASE,
-    user: PG_USER,
-    password: PG_PASSWORD,
-  });
+  console.log(`   🔍 TI 조회 시작: ${hashes.length}개 해시`);
 
-  try {
-    await client.connect();
-
-    const query = `
-      SELECT
-        hash,
-        verdict,
-        threat_level,
-        classification,
-        file_name,
-        threat_intel_sources
-      FROM file_hashes
-      WHERE hash = ANY($1::text[])
-    `;
-
-    const result = await client.query(query, [hashes]);
-    return result.rows;
-  } catch (error: any) {
-    console.error('⚠️  PostgreSQL TI 조회 실패:', error.message);
-    return [];
-  } finally {
-    await client.end();
+  // Step 1: Benign Hash Cache 초기화
+  const benignCache = getBenignHashCache();
+  if (!benignCache.getStats().isInitialized) {
+    console.log('   ⏳ Benign Hash Cache 초기화 중...');
+    await benignCache.init();
   }
+
+  const tiResults: any[] = [];
+  let benignCount = 0;
+  let threatCount = 0;
+  let unknownCount = 0;
+
+  // Step 2: 각 해시 분석
+  for (const hash of hashes) {
+    // Benign 체크
+    const benignResult = benignCache.isBenignDetailed(hash);
+
+    if (benignResult.isBenign) {
+      // Benign (화이트리스트)
+      benignCount++;
+      tiResults.push({
+        hash: hash,
+        verdict: 'benign',
+        confidence: benignResult.confidence,
+        source: benignResult.source,
+        classification: 'Whitelisted',
+      });
+      continue;
+    }
+
+    // Step 3: Vector Search로 위협 체크
+    try {
+      const vectorResult = await hybridThreatIntelSearch(hash, {
+        iocTopK: 3,
+        iocIndices: ['malware'],
+        webSearchEnabled: false,
+      });
+
+      if (vectorResult.internal_results.count > 0) {
+        const topMatch = vectorResult.internal_results.items[0];
+        const malwareName = topMatch.data.signature;
+
+        if (malwareName && malwareName !== 'Unknown') {
+          // 위협 발견
+          threatCount++;
+          tiResults.push({
+            hash: hash,
+            verdict: 'threat',
+            confidence: topMatch.score > 0.95 ? 'HIGH' : topMatch.score > 0.85 ? 'MEDIUM' : 'LOW',
+            source: 'IOCLog Vector Search',
+            classification: malwareName,
+            score: topMatch.score,
+            file_type: topMatch.data.file_type_guess,
+            file_name: topMatch.data.file_name,
+          });
+          continue;
+        }
+      }
+    } catch (error: any) {
+      console.error(`   ⚠️  Vector Search 실패 (${hash.substring(0, 16)}...): ${error.message}`);
+    }
+
+    // Unknown (Benign도 Threat도 아님)
+    unknownCount++;
+  }
+
+  console.log(`   ✅ TI 조회 완료: Benign ${benignCount}, Threat ${threatCount}, Unknown ${unknownCount}`);
+
+  return tiResults;
 }
 
 // MITRE ATT&CK 조회
@@ -126,6 +172,15 @@ async function queryMitre(techniqueIds: string[]): Promise<any[]> {
 // 1. 인시던트 조회
 console.log('\x1b[32m1️⃣  인시던트 조회 중...\x1b[0m');
 
+// KST (UTC+9) → UTC 변환
+const dateObj = new Date(reportDate + 'T00:00:00+09:00'); // KST 자정
+const nextDayObj = new Date(reportDate + 'T23:59:59+09:00'); // KST 23:59:59
+const gteUTC = dateObj.toISOString().replace('.000Z', 'Z');
+const lteUTC = nextDayObj.toISOString().replace('.000Z', 'Z');
+
+console.log(`   📅 조회 범위: ${reportDate} (KST)`);
+console.log(`   🌐 UTC 변환: ${gteUTC} ~ ${lteUTC}`);
+
 const incidentQuery = {
   query: {
     bool: {
@@ -133,8 +188,8 @@ const incidentQuery = {
         {
           range: {
             '@timestamp': {
-              gte: `${reportDate}T00:00:00`,
-              lte: `${reportDate}T23:59:59`,
+              gte: gteUTC,
+              lte: lteUTC,
             },
           },
         },
@@ -214,8 +269,9 @@ const incidentQuery = {
     };
 
     // 파일, 네트워크, 알럿, 프로세스, 엔드포인트 조회
-    const files = queryOpenSearch('logs-cortex_xdr-files-*', detailQuery).hits?.hits || [];
-    const networks = queryOpenSearch('logs-cortex_xdr-networks-*', detailQuery).hits?.hits || [];
+    // FIXED: 인덱스 패턴 수정 (files→file-artifacts, networks→network-artifacts)
+    const files = queryOpenSearch('logs-cortex_xdr-file-artifacts-*', detailQuery).hits?.hits || [];
+    const networks = queryOpenSearch('logs-cortex_xdr-network-artifacts-*', detailQuery).hits?.hits || [];
     const alerts = queryOpenSearch('logs-cortex_xdr-alerts-*', detailQuery).hits?.hits || [];
     const processes = queryOpenSearch('logs-cortex_xdr-processes-*', detailQuery).hits?.hits || [];
     const endpoints = queryOpenSearch('logs-cortex_xdr-endpoints-*', detailQuery).hits?.hits || [];
@@ -428,7 +484,14 @@ const incidentQuery = {
   console.log('');
   console.log('\x1b[32m7️⃣  데이터 저장 중...\x1b[0m');
   
-  const outputFile = `/tmp/daily_incidents_data_${reportDate}.json`;
+  const outputDir = 'public/reports/data';
+  const outputFile = `${outputDir}/daily_incidents_data_${reportDate}.json`;
+
+  // Ensure directory exists
+  if (!existsSync(outputDir)) {
+    mkdirSync(outputDir, { recursive: true });
+  }
+
   writeFileSync(outputFile, JSON.stringify({
     collected_data: {
       incidents: detailedIncidents,

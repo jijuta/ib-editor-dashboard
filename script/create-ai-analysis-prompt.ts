@@ -21,7 +21,7 @@ console.log('');
 // 1. 데이터 로드
 console.log('\x1b[32m1️⃣  데이터 로드 중...\x1b[0m');
 
-const dataFile = `/tmp/daily_incidents_data_${reportDate}.json`;
+const dataFile = `public/reports/data/daily_incidents_data_${reportDate}.json`;
 
 let data: any;
 try {
@@ -247,7 +247,7 @@ console.log(`✅ 프롬프트 생성 완료 (${prompt.length}자)`);
 console.log('');
 console.log('\x1b[32m3️⃣  프롬프트 저장 중...\x1b[0m');
 
-const promptFile = `/tmp/ai_analysis_prompt_${reportDate}.txt`;
+const promptFile = `public/reports/data/ai_analysis_prompt_${reportDate}.txt`;
 writeFileSync(promptFile, prompt);
 
 console.log(`✅ 프롬프트 저장: ${promptFile}`);
@@ -261,7 +261,7 @@ console.log('');
 console.log('\x1b[33m다음 단계: Claude AI 분석 실행\x1b[0m');
 console.log('');
 console.log('\x1b[36m📋 방법 1: claude 명령어 사용 (권장)\x1b[0m');
-console.log(`\x1b[32m  cat ${promptFile} | claude --print > /tmp/ai_analysis_${reportDate}.json\x1b[0m`);
+console.log(`\x1b[32m  cat ${promptFile} | claude --print > public/reports/data/ai_analysis_${reportDate}.json\x1b[0m`);
 console.log('');
 console.log('\x1b[36m📋 방법 2: 스크립트 사용\x1b[0m');
 console.log(`\x1b[32m  npx tsx script/run-ai-analysis.ts ${reportDate}\x1b[0m`);
