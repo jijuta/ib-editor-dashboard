@@ -1,0 +1,1393 @@
+# 📊 DeFender X SIEM - 자동 보고서 생성 시스템 상세 기획서
+
+**문서 버전**: 1.0
+**작성일**: 2025-11-21
+**프로젝트**: DeFender X SIEM (ib-poral)
+**목적**: 일일/주간/월간/분기/연간 보안 보고서 자동 생성 시스템 구축
+
+---
+
+## 📋 목차
+
+1. [프로젝트 개요](#1-프로젝트-개요)
+2. [보고서 유형별 상세 구성](#2-보고서-유형별-상세-구성)
+3. [보고서 템플릿 및 디자인](#3-보고서-템플릿-및-디자인)
+4. [최신 트렌드 및 참고 사례](#4-최신-트렌드-및-참고-사례)
+5. [기술 아키텍처](#5-기술-아키텍처)
+6. [개발 계획](#6-개발-계획)
+
+---
+
+## 1. 프로젝트 개요
+
+### 1.1 현재 상황
+
+**기존 시스템**:
+- 파일: `src/lib/report-template-generator2.ts`
+- 방식: 수동으로 인시던트 선택 → 보고서 생성 버튼 클릭
+- 출력: 단일 포맷 보고서 (AI 의견 10개 섹션 + 차트 7개)
+- 한계:
+  - 보고서 유형 구분 없음 (일일/주간/월간 구분 X)
+  - 자동 스케줄링 없음 (수동 생성만 가능)
+  - 템플릿 없음 (매번 동일한 구성)
+  - 편집 기능 제한적
+
+### 1.2 목표
+
+**새로운 시스템**:
+1. **보고서 유형 구분**: 일일, 주간, 월간, 분기, 연간 보고서 각각의 목적에 맞는 구성
+2. **자동 생성**: node-cron 기반 스케줄링으로 정해진 시간에 자동 생성
+3. **템플릿 시스템**: 사용자가 보고서 템플릿 생성/수정/공유 가능
+4. **노션 스타일 편집**: 블록 기반 편집기로 보고서 내용 자유롭게 수정
+5. **위젯 시스템**: 차트/테이블/텍스트 등을 드래그 앤 드롭으로 배치
+6. **PDF/마크다운 출력**: 다양한 형식으로 내보내기
+
+### 1.3 대상 독자
+
+| 보고서 유형 | 주요 독자 | 배포 방식 |
+|------------|----------|----------|
+| 일일 보고서 | 보안 분석가, SOC 팀 | 이메일, 대시보드 알림 |
+| 주간 보고서 | 팀 리드, 보안 관리자 | 이메일 (PDF 첨부) |
+| 월간 보고서 | CISO, 보안 경영진, 컴플라이언스 팀 | 이메일, 경영진 대시보드 |
+| 분기 보고서 | 이사회, 감사관, 외부 이해관계자 | 임원 프레젠테이션 (PPT), PDF |
+| 연간 보고서 | 이사회, 투자자, 규제 기관 | 연간 보안 보고서 (공개), 컴플라이언스 아카이브 |
+
+---
+
+## 2. 보고서 유형별 상세 구성
+
+### 2.1 일일 보고서 (Daily Security Report)
+
+#### 2.1.1 목적 및 특징
+- **목적**: 전일 24시간 동안의 보안 이벤트 요약 및 긴급 대응 필요 사항 전달
+- **생성 시간**: 매일 오전 9시 (전일 00:00 ~ 23:59 데이터)
+- **페이지 수**: 3~5페이지 (A4 기준)
+- **생성 시간**: 30~45초
+- **특징**: 빠른 스캔 가능, 액션 아이템 중심, 시각 자료 최소화
+
+#### 2.1.2 보고서 구성 (9개 섹션)
+
+| # | 섹션명 (한글) | 섹션명 (영문) | 내용 설명 | 데이터 소스 | 시각화 |
+|---|--------------|---------------|----------|------------|---------|
+| **1** | **일일 개요** | Daily Overview | 24시간 핵심 지표 4가지<br>- 총 인시던트 건수<br>- Critical/High 건수<br>- 평균 해결 시간 (MTTR)<br>- 해결률 (%) | `logs-cortex_xdr-incidents-*`<br>(creation_time 필터) | 메트릭 카드 4개<br>(2x2 그리드) |
+| **2** | **인시던트 현황** | Incident Status | 상태별 분류<br>- 신규 (New)<br>- 진행중 (In Progress)<br>- 해결됨 (Resolved)<br>- 오탐 (False Positive) | `logs-cortex_xdr-incidents-*`<br>(status 필드 집계) | 도넛 차트 +<br>요약 테이블 |
+| **3** | **심각도 분포** | Severity Distribution | 심각도별 건수<br>- Critical (빨강)<br>- High (주황)<br>- Medium (노랑)<br>- Low (파랑) | `logs-cortex_xdr-incidents-*`<br>(severity 필드 집계) | 가로 막대 차트 |
+| **4** | **TOP 10 인시던트** | Top 10 Incidents | 가장 심각한 인시던트 10건<br>- Incident ID<br>- 제목<br>- 심각도<br>- 영향받은 호스트<br>- 상태 | `logs-cortex_xdr-incidents-*`<br>(severity 정렬, limit 10) | 데이터 테이블<br>(정렬 가능) |
+| **5** | **시간대별 발생 추이** | Hourly Trend | 24시간 인시던트 발생 패턴<br>- X축: 00:00 ~ 23:00<br>- Y축: 건수<br>- 피크 시간대 하이라이트 | `logs-cortex_xdr-incidents-*`<br>(creation_time 시간별 집계) | 라인 차트<br>(24 데이터 포인트) |
+| **6** | **영향받은 호스트** | Affected Hosts | 인시던트가 발생한 호스트 TOP 10<br>- 호스트명<br>- IP 주소<br>- 인시던트 건수<br>- 가장 높은 심각도 | `logs-cortex_xdr-incidents-*`<br>(hosts 배열 집계) | 가로 막대 차트 |
+| **7** | **신규 파일 해시** | New File Hashes | 처음 탐지된 파일 해시<br>- SHA256 (처음 10자리)<br>- 파일명<br>- TI 상태 (Benign/Unknown/Malicious)<br>- VirusTotal 링크 | `logs-cortex_xdr-file-*`<br>`ioclog` (PostgreSQL)<br>(전일 첫 등장 해시) | 데이터 테이블<br>(TI 상태 뱃지) |
+| **8** | **긴급 조치사항** | Urgent Actions | Critical/High 중 미해결 인시던트<br>- Incident ID<br>- 제목<br>- 경과 시간<br>- 담당자 | `logs-cortex_xdr-incidents-*`<br>(severity=critical/high<br>AND status!=resolved) | 알림 카드<br>(빨간 테두리) |
+| **9** | **AI 종합 의견** | AI Summary | Gemini 2.5 Pro 생성<br>- 주요 패턴 (3~5문장)<br>- 권장 조치 (체크리스트 3개)<br>- 특이사항 | AI 분석<br>(전체 데이터 기반) | 마크다운 텍스트<br>(아이콘 포함) |
+
+#### 2.1.3 보고서 예시 (마크다운)
+
+```markdown
+# 일일 보안 보고서 (Daily Security Report)
+**보고 기간**: 2025-11-20 00:00 ~ 23:59
+**생성 일시**: 2025-11-21 09:00:00
+**보고서 버전**: v1.0
+
+---
+
+## 1. 일일 개요 (Daily Overview)
+
+| 지표 | 수치 | 전일 대비 |
+|------|------|----------|
+| 총 인시던트 | 42건 | ▲ 12% |
+| Critical/High | 8건 | ▲ 2건 |
+| 평균 해결 시간 (MTTR) | 45분 | ▼ 5분 |
+| 해결률 | 85% | ▲ 3% |
+
+---
+
+## 2. 인시던트 현황 (Incident Status)
+
+| 상태 | 건수 | 비율 |
+|------|------|------|
+| 신규 (New) | 5건 | 12% |
+| 진행중 (In Progress) | 12건 | 29% |
+| 해결됨 (Resolved) | 22건 | 52% |
+| 오탐 (False Positive) | 3건 | 7% |
+
+**차트**: [도넛 차트 이미지]
+
+---
+
+## 3. 심각도 분포 (Severity Distribution)
+
+| 심각도 | 건수 | 전일 대비 |
+|--------|------|----------|
+| 🔴 Critical | 3건 | +1 |
+| 🟠 High | 5건 | +1 |
+| 🟡 Medium | 18건 | +3 |
+| 🔵 Low | 16건 | +2 |
+
+**차트**: [가로 막대 차트 이미지]
+
+---
+
+## 4. TOP 10 인시던트 (Top 10 Incidents)
+
+| Rank | Incident ID | 제목 | 심각도 | 호스트 | 상태 |
+|------|-------------|------|--------|--------|------|
+| 1 | 414189 | Ransomware Detection | 🔴 Critical | KT-GMOM-04 | In Progress |
+| 2 | 414188 | Credential Theft | 🔴 Critical | LAPTOP-EPCI81HQ | Resolved |
+| 3 | 414187 | Process Injection | 🟠 High | DESKTOP-V8U1LT0 | In Progress |
+| ... | ... | ... | ... | ... | ... |
+
+---
+
+## 5. 시간대별 발생 추이 (Hourly Trend)
+
+**차트**: [라인 차트 이미지]
+
+**피크 시간**: 14:00 (8건), 18:00 (7건)
+
+---
+
+## 6. 영향받은 호스트 (Affected Hosts)
+
+| 순위 | 호스트명 | IP 주소 | 인시던트 건수 | 최고 심각도 |
+|------|---------|---------|-------------|-----------|
+| 1 | KT-GMOM-04 | 192.168.1.10 | 5건 | 🔴 Critical |
+| 2 | LAPTOP-EPCI81HQ | 192.168.1.25 | 3건 | 🔴 Critical |
+| 3 | DESKTOP-V8U1LT0 | 192.168.1.42 | 2건 | 🟠 High |
+| ... | ... | ... | ... | ... |
+
+---
+
+## 7. 신규 파일 해시 (New File Hashes)
+
+| SHA256 (앞 10자리) | 파일명 | TI 상태 | VirusTotal |
+|-------------------|--------|---------|------------|
+| a3f8b2c1d4... | malware.exe | 🔴 Malicious | [링크](https://...) |
+| 7e9d4f1a2c... | update.dll | 🟢 Benign | [링크](https://...) |
+| ... | ... | ... | ... |
+
+---
+
+## 8. 긴급 조치사항 (Urgent Actions)
+
+⚠️ **다음 인시던트는 즉시 대응이 필요합니다**:
+
+1. **#414189** - Ransomware Detection (KT-GMOM-04)
+   - 경과 시간: 2시간 15분
+   - 담당자: 미할당
+   - 조치: 즉시 호스트 격리 및 조사 시작 필요
+
+2. **#414187** - Process Injection (DESKTOP-V8U1LT0)
+   - 경과 시간: 45분
+   - 담당자: 홍길동
+   - 조치: 메모리 덤프 수집 및 프로세스 체인 분석 필요
+
+---
+
+## 9. AI 종합 의견 (AI Summary)
+
+💡 **Gemini 2.5 Pro 분석 결과**:
+
+**주요 패턴**:
+- 오후 2시~6시 사이 인시던트 집중 발생 (전체의 42%)
+- KT-GMOM-04 호스트에서 랜섬웨어 징후 탐지, 추가 모니터링 필요
+- Process Injection 기법을 사용한 공격 3건 탐지 (MITRE T1055)
+
+**권장 조치**:
+- ✅ KT-GMOM-04 호스트 즉시 네트워크 격리
+- ✅ 전체 호스트 대상 랜섬웨어 IOC 스캔 실시
+- ✅ 오후 피크 시간대 모니터링 인력 증원 고려
+
+**특이사항**:
+- 금일 오탐률 7%로 평소(15%) 대비 크게 감소
+- 평균 해결 시간 45분으로 목표치(60분) 달성
+
+---
+
+**보고서 끝**
+```
+
+---
+
+### 2.2 주간 보고서 (Weekly Security Report)
+
+#### 2.2.1 목적 및 특징
+- **목적**: 주간 보안 트렌드 분석 및 팀 리드 의사결정 지원
+- **생성 시간**: 매주 월요일 10시 (직전 주 월~일 데이터)
+- **페이지 수**: 10~15페이지 (A4 기준)
+- **생성 시간**: 60~90초
+- **특징**: 트렌드 분석, 주간 비교, MITRE 매핑, 상세 통계
+
+#### 2.2.2 보고서 구성 (13개 섹션)
+
+| # | 섹션명 (한글) | 섹션명 (영문) | 내용 설명 | 데이터 소스 | 시각화 |
+|---|--------------|---------------|----------|------------|---------|
+| **1** | **주간 요약** | Weekly Executive Summary | 핵심 지표 + 주간 비교<br>- 총 인시던트 (전주 대비)<br>- Critical/High 건수<br>- MTTR 평균<br>- 해결률<br>- 신규 위협 유형<br>- 주요 이슈 3가지 | `logs-cortex_xdr-incidents-*`<br>(7일 집계 + 전주 비교) | 메트릭 카드 6개<br>+ 트렌드 화살표 |
+| **2** | **인시던트 트렌드** | Incident Trend | 7일간 일별 추이<br>- 일별 총 건수<br>- 심각도별 스택<br>- 주중/주말 패턴 분석 | `logs-cortex_xdr-incidents-*`<br>(creation_time 일별 집계) | 멀티 라인 차트<br>(일별 분해) |
+| **3** | **심각도 변화** | Severity Changes | 주간 심각도 비교<br>- 이번 주 vs 지난 주<br>- 심각도별 증감율 | `logs-cortex_xdr-incidents-*`<br>(주별 severity 집계) | 스택 영역 차트 |
+| **4** | **MITRE ATT&CK 매핑** | MITRE ATT&CK Mapping | 탐지된 TOP 15 기법<br>- Technique ID (T1055 등)<br>- Technique Name<br>- Tactic<br>- 탐지 건수<br>- 전주 대비 | `logs-cortex_xdr-incidents-*`<br>(MITRE 필드 집계) | 가로 막대 차트<br>(색상 코딩) |
+| **5** | **위협 파일 해시 분석** | Threat Hash Analysis | SHA256 그룹별 분석<br>- 악성 해시 TOP 20<br>- 파일명<br>- 탐지 횟수<br>- TI 검증 결과<br>- VirusTotal 점수 | `logs-cortex_xdr-file-*`<br>`ioclog` (PostgreSQL)<br>(is_malicious=true) | 테이블 +<br>VirusTotal 링크 |
+| **6** | **네트워크 아티팩트** | Network Artifacts | 외부 통신 분석 TOP 20<br>- 외부 IP/도메인<br>- 국가<br>- 연결 횟수<br>- 위협 여부 | `logs-cortex_xdr-network-*`<br>(external_ip 집계) | 테이블 +<br>GeoIP 플래그 |
+| **7** | **영향받은 자산** | Affected Assets | 호스트 & 사용자 TOP 20<br>- 호스트명<br>- 사용자명<br>- 인시던트 건수<br>- 평균 심각도 | `logs-cortex_xdr-incidents-*`<br>(hosts, users 집계) | 콤보 테이블<br>(호스트 + 사용자) |
+| **8** | **CVE 취약점** | CVE Vulnerabilities | Critical/High CVE 목록<br>- CVE ID<br>- CVSS 점수<br>- 영향받은 호스트<br>- 패치 상태 | `logs-cortex_xdr-va-cves-*` | 테이블 +<br>CVSS 점수 바 |
+| **9** | **해결 시간 분석** | Resolution Time Analysis | MTTR 통계<br>- 평균, 중앙값, 최대값<br>- 심각도별 MTTR<br>- SLA 준수율 | `logs-cortex_xdr-incidents-*`<br>(creation_time ~<br>modification_time 계산) | 박스 플롯 +<br>통계 테이블 |
+| **10** | **오탐 분석** | False Positive Analysis | 오탐률 통계<br>- 전체 오탐률<br>- 카테고리별 오탐률<br>- 오탐 감소 추이 | `logs-cortex_xdr-incidents-*`<br>(status=false_positive) | 파이 차트 |
+| **11** | **AI 주요 인사이트** | AI Key Insights | Gemini 2.5 Pro 분석<br>- 패턴 분석 (5~7문장)<br>- 주요 위협 요약<br>- 권장 조치 (체크리스트) | AI 분석<br>(전체 주간 데이터) | 마크다운<br>(불릿 포인트) |
+| **12** | **플레이북 권장사항** | Playbook Recommendations | 실행 가능한 다음 단계<br>- 단기 조치 (1주)<br>- 중기 조치 (1개월)<br>- 담당자 배정 | AI 분석 + 템플릿 | 체크리스트 |
+| **13** | **인시던트 상세 목록** | Incident Detail List | 전체 인시던트 목록<br>(심각도별 그룹화)<br>- Critical 전체<br>- High 전체<br>- Medium/Low 요약 | `logs-cortex_xdr-incidents-*`<br>(전체 쿼리) | 확장 가능<br>테이블 |
+
+#### 2.2.3 주간 보고서 특징
+
+**차별화 요소**:
+1. **주간 비교**: 모든 지표에 "전주 대비" 증감 표시
+2. **MITRE 매핑**: 공격 기법 트렌드 분석
+3. **TI 검증**: 파일 해시 VirusTotal 연동
+4. **플레이북**: 실행 가능한 액션 아이템
+
+---
+
+### 2.3 월간 보고서 (Monthly Security Report)
+
+#### 2.3.1 목적 및 특징
+- **목적**: 경영진 의사결정 지원, 컴플라이언스 증빙, 예산 계획
+- **생성 시간**: 매월 1일 10시 (전월 1일~말일 데이터)
+- **페이지 수**: 30~50페이지 (A4 기준)
+- **생성 시간**: 2~3분
+- **특징**: 경영진 요약, 상세 통계, 컴플라이언스 지표, 투자 대비 효과
+
+#### 2.3.2 보고서 구성 (17개 섹션)
+
+| # | 섹션명 (한글) | 섹션명 (영문) | 내용 설명 | 페이지 수 |
+|---|--------------|---------------|----------|----------|
+| **1** | **경영진 요약** | Executive Summary | C-level을 위한 2~3문단 요약<br>- 월간 하이라이트<br>- 주요 위협<br>- 비즈니스 영향<br>- 권장 조치 | 1페이지 |
+| **2** | **월간 지표** | Monthly Metrics | KPI 대시보드 (10+ 지표)<br>- 총 인시던트<br>- Critical/High 비율<br>- MTTR, MTTD<br>- 해결률<br>- 오탐률<br>- SLA 준수율<br>- 커버리지 | 2페이지 |
+| **3** | **트렌드 분석** | Trend Analysis | 3개월 비교 (MoM)<br>- 인시던트 추이<br>- 심각도 변화<br>- 해결 시간 변화 | 2페이지 |
+| **4** | **심각도 분포 (월별)** | Severity Distribution | 월별 4주 분해<br>- 주차별 심각도 분포<br>- 평균 vs 피크 | 1페이지 |
+| **5** | **인시던트 카테고리 분석** | Incident Category Analysis | TOP 20 인시던트 유형<br>- 멀웨어<br>- 피싱<br>- 무단 접근<br>- 데이터 유출 등 | 2페이지 |
+| **6** | **MITRE ATT&CK 히트맵** | MITRE ATT&CK Heatmap | Tactics x Techniques 매트릭스<br>- 14개 Tactic<br>- ~200개 Technique<br>- 색상 그라데이션 | 3페이지 |
+| **7** | **위협 인텔리전스** | Threat Intelligence | TI 검증 위협 TOP 50<br>- 파일 해시<br>- 네트워크 IOC<br>- 위협 점수<br>- 캠페인 매핑 | 3페이지 |
+| **8** | **CVE 취약점 현황** | CVE Status | Critical/High CVE<br>- CVE 목록<br>- 영향 범위<br>- 패치 진행률<br>- 잔여 리스크 | 2페이지 |
+| **9** | **네트워크 위협 분석** | Network Threat Analysis | 악성 IP, C2 서버<br>- 지리적 분포 (세계 지도)<br>- TOP 50 IP/도메인<br>- 차단 현황 | 2페이지 |
+| **10** | **영향받은 자산 (TOP 50)** | Affected Assets | 호스트 & 사용자 TOP 50<br>- 리스크 점수<br>- 인시던트 이력<br>- 권장 조치 | 2페이지 |
+| **11** | **해결 시간 KPI** | Resolution Time KPI | MTTR, MTTD 트렌드<br>- 월별 변화<br>- 심각도별 분해<br>- 목표 대비 실적 | 1페이지 |
+| **12** | **보안 운영 효율** | Security Operations Efficiency | 운영 지표<br>- 해결/오탐/진행중 비율<br>- 자동화율<br>- 담당자별 처리량 | 2페이지 |
+| **13** | **플레이북 실행 현황** | Playbook Execution Status | 자동화 vs 수동 대응<br>- 플레이북 실행 횟수<br>- 성공률<br>- 시간 절감 효과 | 1페이지 |
+| **14** | **컴플라이언스 지표** | Compliance Metrics | ISMS-P, ISO 27001 지표<br>- 요구사항 준수율<br>- 감사 증빙 자료<br>- 미준수 항목 | 2페이지 |
+| **15** | **AI 종합 분석** | AI Comprehensive Analysis | Gemini 2.5 Pro 상세 분석<br>- 10+ 문단<br>- 위협 환경 분석<br>- 패턴 및 이상 징후<br>- 산업 동향 비교 | 3페이지 |
+| **16** | **권장 개선사항** | Improvement Recommendations | 단기 액션 플랜 (1개월)<br>- 기술적 개선<br>- 프로세스 개선<br>- 교육 계획<br>- 예산 요청 | 2페이지 |
+| **17** | **인시던트 상세 (TOP 50)** | Detailed Incidents | Critical/High만<br>- 전체 상세 정보<br>- 타임라인<br>- 대응 내역 | 5~10페이지 |
+
+**총 페이지**: 30~50페이지
+
+---
+
+### 2.4 분기 보고서 (Quarterly Security Report)
+
+#### 2.4.1 목적 및 특징
+- **목적**: 이사회 보고, 외부 감사, 전략적 의사결정
+- **생성 시간**: 분기 종료 후 5영업일 이내
+- **페이지 수**: 60~100페이지 (A4 기준)
+- **생성 시간**: 5~7분
+- **특징**: 고급 분석, 케이스 스터디, ROI 분석, 전략 로드맵
+
+#### 2.4.2 보고서 구성 (15개 섹션)
+
+| # | 섹션명 (한글) | 내용 설명 | 페이지 수 |
+|---|--------------|----------|----------|
+| **1** | **분기 하이라이트** | 주요 성과, 대형 인시던트, 개선사항 | 2페이지 |
+| **2** | **경영진 대시보드** | 20+ KPI (YoY 비교 포함) | 3페이지 |
+| **3** | **분기별 트렌드 (12개월)** | 연간 추이 분석 | 3페이지 |
+| **4** | **위협 환경 분석** | 산업 동향, 신규 위협, APT 그룹 | 5페이지 |
+| **5** | **MITRE ATT&CK 커버리지** | 3개월 탐지 커버리지 분석 | 4페이지 |
+| **6** | **고급 위협 분석** | APT 캠페인, 표적 공격 케이스 스터디 (3~5건) | 10페이지 |
+| **7** | **CVE 취약점 포트폴리오** | 전체 CVE 목록 (카테고리별) | 5페이지 |
+| **8** | **자산 리스크 프로파일** | 자산별 리스크 점수 매트릭스 | 3페이지 |
+| **9** | **보안 태세 평가** | 보안 성숙도 평가 (CMMI, NIST CSF) | 5페이지 |
+| **10** | **SOC 운영 메트릭스** | 팀 성과, SLA 준수, 교육 현황 | 3페이지 |
+| **11** | **사고 대응 사례** | 주요 인시던트 3~5건 상세 분석 | 10페이지 |
+| **12** | **컴플라이언스 현황** | ISMS-P, ISO 27001, PCI-DSS 진행률 | 5페이지 |
+| **13** | **투자 대비 효과 (ROI)** | 비용 절감, 위협 차단 효과 금액 환산 | 3페이지 |
+| **14** | **AI 전략 권장사항** | 3~6개월 로드맵, 예산 계획 | 5페이지 |
+| **15** | **부록: 전체 인시던트 목록** | 분기 전체 인시던트 레지스트리 | 10~20페이지 |
+
+**총 페이지**: 60~100페이지
+
+---
+
+### 2.5 연간 보고서 (Annual Security Report)
+
+#### 2.5.1 목적 및 특징
+- **목적**: 연간 총괄, 공개 보안 보고서, 규제 제출
+- **생성 시간**: 연말 후 15영업일 이내
+- **페이지 수**: 150~250페이지 (A4 기준)
+- **생성 시간**: 15~20분
+- **특징**: 포괄적 분석, 멀티 연도 비교, 공개 가능 버전
+
+#### 2.5.2 보고서 구성 (19개 섹션)
+
+| # | 섹션명 (한글) | 내용 설명 | 페이지 수 |
+|---|--------------|----------|----------|
+| **1** | **연간 개요** | Year in Review (2~3페이지 요약) | 3페이지 |
+| **2** | **경영진 대시보드 (연간)** | 30+ KPI, 3년 추이 | 5페이지 |
+| **3** | **위협 환경 연간 리뷰** | 산업 동향, 예측, 권장사항 | 10페이지 |
+| **4** | **인시던트 통계 (월별)** | 12개월 상세 분해 | 5페이지 |
+| **5** | **심각도 추이 (52주)** | 주별 히트맵 | 2페이지 |
+| **6** | **MITRE ATT&CK 연간 분석** | 연도별 Tactic/Technique 비교 | 10페이지 |
+| **7** | **TOP 100 위협 파일** | 악성 파일 순위 (TI 검증) | 10페이지 |
+| **8** | **TOP 50 악성 네트워크** | C2 서버, 피싱 도메인 | 5페이지 |
+| **9** | **CVE 연간 리포트** | 전체 CVE (500+) | 15페이지 |
+| **10** | **자산 인벤토리 리스크** | 전체 자산 리스크 점수 (1000+) | 20페이지 |
+| **11** | **보안 성숙도 평가** | CMMI, NIST CSF 다년 비교 | 10페이지 |
+| **12** | **SOC 운영 리뷰** | 팀 성과, 교육, SLA | 5페이지 |
+| **13** | **주요 사고 사례 연구** | 10~15건 상세 분석 | 20페이지 |
+| **14** | **컴플라이언스 감사 현황** | 감사 결과, 시정 조치 | 10페이지 |
+| **15** | **보안 투자 분석** | 예산, ROI, 비용 회피 | 5페이지 |
+| **16** | **AI 전략 로드맵 (3년)** | 장기 전략 계획 | 10페이지 |
+| **17** | **부록 A: 인시던트 레지스트리** | 연간 전체 목록 (5000+) | 30~50페이지 |
+| **18** | **부록 B: 약어 및 용어** | 보안 용어집 | 5페이지 |
+| **19** | **부록 C: 준수 매트릭스** | 규제 요구사항 매핑 | 5페이지 |
+
+**총 페이지**: 150~250페이지
+
+---
+
+## 3. 보고서 템플릿 및 디자인
+
+### 3.1 디자인 원칙
+
+#### 3.1.1 일관성 (Consistency)
+- 모든 보고서에서 동일한 색상, 폰트, 아이콘 사용
+- 섹션 제목 스타일 통일
+- 차트 색상 팔레트 고정
+
+#### 3.1.2 가독성 (Readability)
+- **폰트**: Inter (Sans-serif)
+- **제목 크기**: H1 (24px), H2 (20px), H3 (18px)
+- **본문 크기**: 14px (최소)
+- **줄 간격**: 1.7 (본문), 1.2 (제목)
+- **최대 줄 길이**: 75자 (가독성 최적화)
+
+#### 3.1.3 시각적 계층 (Visual Hierarchy)
+1. **경영진 요약** → 큰 폰트, 하이라이트 박스
+2. **핵심 지표** → 메트릭 카드 (아이콘 + 숫자 + 트렌드)
+3. **상세 데이터** → 테이블, 차트
+4. **부록** → 작은 폰트, 회색 배경
+
+### 3.2 색상 체계
+
+#### 3.2.1 심각도 색상 (일관성 유지)
+
+```css
+/* Critical - 빨강 */
+--critical-bg: rgba(239, 68, 68, 0.1);     /* 배경 */
+--critical-border: #ef4444;                 /* 테두리 */
+--critical-text: #ef4444;                   /* 텍스트 */
+
+/* High - 주황 */
+--high-bg: rgba(245, 158, 11, 0.1);
+--high-border: #f59e0b;
+--high-text: #f59e0b;
+
+/* Medium - 노랑 */
+--medium-bg: rgba(234, 179, 8, 0.1);
+--medium-border: #eab308;
+--medium-text: #eab308;
+
+/* Low - 파랑 */
+--low-bg: rgba(59, 130, 246, 0.1);
+--low-border: #3b82f6;
+--low-text: #3b82f6;
+
+/* Info/Success - 초록 */
+--success-bg: rgba(16, 185, 129, 0.1);
+--success-border: #10b981;
+--success-text: #10b981;
+```
+
+#### 3.2.2 차트 색상 팔레트
+
+**카테고리형 (Categorical)**:
+```javascript
+const chartColors = [
+  '#ef4444', // red-500 (Critical)
+  '#f59e0b', // amber-500 (High)
+  '#eab308', // yellow-500 (Medium)
+  '#3b82f6', // blue-500 (Low)
+  '#10b981', // green-500 (Success)
+  '#6366f1', // indigo-500
+  '#8b5cf6', // violet-500
+  '#ec4899', // pink-500
+];
+```
+
+**연속형 (Sequential)** - 히트맵용:
+```javascript
+const heatmapColors = [
+  '#dbeafe', // blue-100 (낮음)
+  '#93c5fd', // blue-300
+  '#3b82f6', // blue-500
+  '#1e40af', // blue-700
+  '#1e3a8a', // blue-900 (높음)
+];
+```
+
+### 3.3 보고서 레이아웃
+
+#### 3.3.1 표지 (Cover Page)
+
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│         [회사 로고]                      │
+│                                         │
+│                                         │
+│     보안 인시던트 월간 보고서             │
+│     Monthly Security Report            │
+│                                         │
+│                                         │
+│     보고 기간: 2025년 10월               │
+│     Period: October 2025               │
+│                                         │
+│     생성 일시: 2025-11-01 10:00        │
+│     Generated: Nov 1, 2025, 10:00 AM   │
+│                                         │
+│                                         │
+│     기밀 (Confidential)                 │
+│     문서 등급: 대외비                    │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+#### 3.3.2 목차 (Table of Contents)
+
+자동 생성 (섹션 번호 + 페이지 번호)
+
+```markdown
+# 목차 (Table of Contents)
+
+1. 경영진 요약 .................................................... 3
+2. 월간 지표 ...................................................... 5
+3. 트렌드 분석 .................................................... 7
+   3.1 인시던트 추이 .............................................. 7
+   3.2 심각도 변화 ................................................ 8
+4. MITRE ATT&CK 히트맵 ............................................ 10
+...
+```
+
+#### 3.3.3 페이지 헤더/푸터
+
+**헤더** (모든 페이지):
+```
+┌─────────────────────────────────────────┐
+│ 월간 보안 보고서 | 2025년 10월     Page 5 │
+└─────────────────────────────────────────┘
+```
+
+**푸터** (모든 페이지):
+```
+┌─────────────────────────────────────────┐
+│ 기밀 (Confidential) - 사내 배포 전용      │
+│ Generated by DeFender X SIEM | 2025-11-01│
+└─────────────────────────────────────────┘
+```
+
+### 3.4 섹션 템플릿
+
+#### 3.4.1 경영진 요약 템플릿
+
+```markdown
+# 경영진 요약 (Executive Summary)
+
+## 월간 하이라이트
+
+[2~3문단 요약 - AI 생성]
+
+2025년 10월 한 달간 총 **258건**의 보안 인시던트가 탐지되었으며,
+이는 전월 대비 **12% 증가**한 수치입니다. Critical 및 High 심각도
+인시던트는 **42건**으로, 전체의 16%를 차지했습니다.
+
+주요 위협으로는 **랜섬웨어 공격 3건**, **피싱 캠페인 15건**,
+**무단 접근 시도 8건**이 탐지되었습니다. 특히 10월 15일에 발생한
+[인시던트 #512034]는 Critical 등급으로 분류되어 즉시 대응이
+이루어졌으며, 24시간 이내 완전 해결되었습니다.
+
+평균 해결 시간(MTTR)은 **38분**으로, 전월 대비 **15% 개선**되었으며,
+목표치인 60분을 크게 상회하는 성과를 기록했습니다. 오탐률은
+**9%**로 유지되어 효율적인 운영이 지속되고 있습니다.
+
+---
+
+## 권장 조치사항
+
+✅ **즉시 조치 필요** (High Priority):
+- [ ] 랜섬웨어 IOC 전체 호스트 스캔 실시
+- [ ] 피싱 대응 교육 전사 확대 (특히 재무팀)
+- [ ] 취약점 패치 적용률 90% 이상 달성
+
+⚠️ **단기 조치** (1개월 이내):
+- [ ] SIEM 탐지 룰 최적화 (오탐률 5% 이하 목표)
+- [ ] SOC 야간 모니터링 인력 1명 증원
+- [ ] 엔드포인트 보안 솔루션 업그레이드 검토
+
+📊 **중기 계획** (분기 내):
+- [ ] 제로 트러스트 아키텍처 단계적 도입
+- [ ] AI 기반 위협 헌팅 도구 도입 검토
+- [ ] 보안 교육 프로그램 개선 (연 4회 → 월 1회)
+```
+
+#### 3.4.2 메트릭 카드 템플릿
+
+```markdown
+## 월간 핵심 지표 (Key Metrics)
+
+┌─────────────────┬─────────────────┬─────────────────┬─────────────────┐
+│ 총 인시던트      │ Critical/High   │ 평균 해결 시간   │ 해결률          │
+│                 │                 │                 │                 │
+│     258건       │     42건        │    38분         │     92%         │
+│   ▲ 12%        │   ▲ 5건        │   ▼ 15%        │   ▲ 2%         │
+│  (전월 대비)    │  (전월 대비)    │  (전월 대비)    │  (전월 대비)    │
+└─────────────────┴─────────────────┴─────────────────┴─────────────────┘
+
+┌─────────────────┬─────────────────┬─────────────────┬─────────────────┐
+│ 오탐률          │ SLA 준수율      │ 신규 CVE        │ 패치 적용률      │
+│                 │                 │                 │                 │
+│      9%         │     98%         │     18개        │     87%         │
+│   ▼ 1%         │   ▲ 2%         │   ▲ 3개        │   ▲ 5%         │
+│  (전월 대비)    │  (전월 대비)    │  (전월 대비)    │  (전월 대비)    │
+└─────────────────┴─────────────────┴─────────────────┴─────────────────┘
+```
+
+#### 3.4.3 차트 템플릿
+
+**라인 차트** (트렌드):
+```markdown
+## 인시던트 월별 추이 (3개월)
+
+[차트 이미지]
+
+| 월 | 인시던트 건수 | 전월 대비 |
+|----|--------------|----------|
+| 8월 | 215건 | - |
+| 9월 | 230건 | +7% |
+| 10월 | 258건 | +12% |
+
+**분석**: 3개월 연속 증가 추세. 주요 원인은 피싱 캠페인 증가(+40건)
+```
+
+**막대 차트** (비교):
+```markdown
+## 심각도별 인시던트 분포
+
+[차트 이미지]
+
+🔴 Critical: ████████░░ 8건 (3%)
+🟠 High: ███████████████░░ 34건 (13%)
+🟡 Medium: ████████████████████████████░░ 132건 (51%)
+🔵 Low: ████████████████████░░ 84건 (33%)
+```
+
+---
+
+## 4. 최신 트렌드 및 참고 사례
+
+### 4.1 2024-2025 보안 보고서 트렌드
+
+#### 4.1.1 산업 표준 참고
+
+**참고한 보고서**:
+1. **Verizon DBIR (Data Breach Investigations Report)**
+   - 형식: 연간 보고서
+   - 특징: 산업별 통계, 공격 패턴 분석, 케이스 스터디
+   - 적용 가능: 섹션 구성, 차트 스타일
+
+2. **IBM Security X-Force Threat Intelligence Index**
+   - 형식: 연간 + 분기 보고서
+   - 특징: 지리적 분석, 산업별 위협, 취약점 동향
+   - 적용 가능: 위협 인텔리전스 섹션
+
+3. **Mandiant M-Trends**
+   - 형식: 연간 보고서
+   - 특징: APT 그룹 분석, Dwell Time 통계, 탐지 방법
+   - 적용 가능: 고급 위협 분석 섹션
+
+4. **CrowdStrike Global Threat Report**
+   - 형식: 연간 보고서
+   - 특징: E-Crime vs Nation-State, 산업별 타깃팅
+   - 적용 가능: 위협 액터 분류
+
+#### 4.1.2 현대적 보고서 요소
+
+**최신 트렌드 (2024-2025)**:
+
+1. **인터랙티브 요소** (PDF 내장):
+   - 클릭 가능한 목차 링크
+   - 차트 확대 기능
+   - 부록 바로가기
+   - 외부 링크 (VirusTotal, MITRE ATT&CK)
+
+2. **AI 생성 콘텐츠**:
+   - 자동 요약 (Executive Summary)
+   - 패턴 탐지 인사이트
+   - 권장 조치 생성
+   - 트렌드 예측
+
+3. **데이터 스토리텔링**:
+   - 타임라인 시각화
+   - 케이스 스터디 (스토리 형식)
+   - Before/After 비교
+   - 비즈니스 영향 금액 환산
+
+4. **다크 모드 지원**:
+   - PDF 다크 모드 버전 제공
+   - 화면 보기 최적화
+   - 인쇄용 라이트 모드 별도
+
+### 4.2 노션 스타일 편집 적용
+
+#### 4.2.1 블록 기반 편집의 장점
+
+**보고서 생성 시나리오**:
+
+1. **초안 자동 생성**: AI가 15개 블록 생성
+2. **사용자 편집**:
+   - 텍스트 블록 클릭하여 수정
+   - 차트 블록 드래그하여 순서 변경
+   - `/` 명령으로 새 섹션 추가
+3. **협업**:
+   - 팀원이 댓글로 피드백
+   - 버전 히스토리로 변경 추적
+4. **최종화**:
+   - PDF 내보내기
+   - 템플릿으로 저장
+
+#### 4.2.2 위젯 시스템 적용
+
+**보고서용 위젯** (10종):
+
+1. **메트릭 카드**: 핵심 지표 표시
+2. **차트 위젯**: Recharts 연동
+3. **테이블 위젯**: OpenSearch 데이터 테이블
+4. **타임라인 위젯**: 인시던트 타임라인
+5. **MITRE 히트맵 위젯**: ATT&CK 매트릭스
+6. **텍스트 위젯**: 마크다운 편집
+7. **AI 인사이트 위젯**: AI 생성 콘텐츠
+8. **이미지 위젯**: 스크린샷, 다이어그램
+9. **임베드 위젯**: VirusTotal 프레임
+10. **체크리스트 위젯**: 액션 아이템
+
+**위젯 배치 예시** (월간 보고서):
+
+```
+┌─────────────────────────────────────────┐
+│ [메트릭 카드] [메트릭 카드] [메트릭 카드] │
+│ [메트릭 카드] [메트릭 카드] [메트릭 카드] │
+├─────────────────────────────────────────┤
+│ [차트 위젯: 인시던트 트렌드 - 라인차트]  │
+├─────────────────────────────────────────┤
+│ [텍스트 위젯: 트렌드 분석 AI 의견]       │
+├─────────────────────────────────────────┤
+│ [MITRE 히트맵 위젯]                      │
+├─────────────────────────────────────────┤
+│ [테이블 위젯: TOP 50 위협 파일]          │
+├─────────────────────────────────────────┤
+│ [AI 인사이트 위젯: 권장 조치사항]        │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## 5. 기술 아키텍처
+
+### 5.1 시스템 구성도
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    사용자 인터페이스                      │
+│  ┌──────────────┬──────────────┬──────────────────────┐ │
+│  │ 보고서 생성  │ 템플릿 관리  │ 스케줄 관리          │ │
+│  │ (수동)       │              │ (자동 생성 설정)      │ │
+│  └──────────────┴──────────────┴──────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│                  Next.js 15 API Routes                   │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │ POST /api/reports/generate                       │   │
+│  │ GET  /api/reports/[id]                           │   │
+│  │ POST /api/reports/schedule                       │   │
+│  │ GET  /api/templates                              │   │
+│  └──────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│              보고서 생성 엔진 (Report Engine)            │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │ ReportGenerator (기존 개선)                      │   │
+│  │ - TypeFactory (일일/주간/월간/분기/연간)         │   │
+│  │ - TemplateEngine (블록 렌더링)                   │   │
+│  │ - WidgetRenderer (위젯 → 차트/테이블)            │   │
+│  │ - AIOpinionGenerator (Gemini 2.5 Pro)           │   │
+│  │ - PDFExporter (react-pdf)                        │   │
+│  └──────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌──────────────┬─────────────────┬────────────────────────┐
+│ OpenSearch   │ PostgreSQL      │ AI Providers           │
+│              │                 │                        │
+│ - Incidents  │ - Reports       │ - Google Gemini 2.5    │
+│ - Alerts     │ - Templates     │ - Azure OpenAI         │
+│ - Files      │ - Schedules     │ - Claude 3             │
+│ - Network    │ - Users         │                        │
+│ - CVEs       │ - Layouts       │                        │
+└──────────────┴─────────────────┴────────────────────────┘
+```
+
+### 5.2 핵심 컴포넌트
+
+#### 5.2.1 Report Generator (팩토리 패턴)
+
+```typescript
+// src/lib/report-generator.ts
+
+export class ReportGeneratorFactory {
+  static create(reportType: ReportType): ReportGenerator {
+    switch (reportType) {
+      case 'daily':
+        return new DailyReportGenerator();
+      case 'weekly':
+        return new WeeklyReportGenerator();
+      case 'monthly':
+        return new MonthlyReportGenerator();
+      case 'quarterly':
+        return new QuarterlyReportGenerator();
+      case 'yearly':
+        return new YearlyReportGenerator();
+      default:
+        throw new Error(`Unknown report type: ${reportType}`);
+    }
+  }
+}
+
+export abstract class ReportGenerator {
+  abstract generateSections(): ReportSection[];
+  abstract getTitle(): string;
+  abstract getPageCount(): number;
+
+  async generate(dateRange: DateRange): Promise<Report> {
+    const sections = this.generateSections();
+    const data = await this.fetchData(dateRange);
+    const aiOpinions = await this.generateAIOpinions(data);
+
+    return {
+      type: this.getType(),
+      title: this.getTitle(),
+      dateRange,
+      sections,
+      data,
+      aiOpinions,
+      generatedAt: new Date(),
+    };
+  }
+
+  protected abstract fetchData(dateRange: DateRange): Promise<any>;
+  protected abstract generateAIOpinions(data: any): Promise<AIOpinion[]>;
+}
+```
+
+#### 5.2.2 Daily Report Generator
+
+```typescript
+// src/lib/generators/daily-report-generator.ts
+
+export class DailyReportGenerator extends ReportGenerator {
+  getType(): ReportType {
+    return 'daily';
+  }
+
+  getTitle(): string {
+    return '일일 보안 보고서';
+  }
+
+  generateSections(): ReportSection[] {
+    return [
+      {
+        id: '1',
+        title: '일일 개요',
+        type: 'metrics',
+        config: {
+          metrics: ['total_incidents', 'critical_high', 'mttr', 'resolution_rate'],
+        },
+      },
+      {
+        id: '2',
+        title: '인시던트 현황',
+        type: 'chart',
+        config: {
+          chartType: 'donut',
+          dataKey: 'status',
+        },
+      },
+      // ... 9개 섹션
+    ];
+  }
+
+  protected async fetchData(dateRange: DateRange): Promise<DailyReportData> {
+    const opensearch = getOpenSearchClient();
+
+    // 1. 총 인시던트 건수
+    const totalIncidents = await opensearch.count({
+      index: 'logs-cortex_xdr-incidents-*',
+      body: {
+        query: {
+          range: {
+            creation_time: {
+              gte: dateRange.start.getTime(),
+              lte: dateRange.end.getTime(),
+            },
+          },
+        },
+      },
+    });
+
+    // 2. 상태별 집계
+    const statusAgg = await opensearch.search({
+      index: 'logs-cortex_xdr-incidents-*',
+      body: {
+        size: 0,
+        query: { /* 동일 */ },
+        aggs: {
+          by_status: {
+            terms: { field: 'status.keyword' },
+          },
+        },
+      },
+    });
+
+    // ... 더 많은 쿼리
+
+    return {
+      totalIncidents: totalIncidents.count,
+      statusBreakdown: statusAgg.aggregations.by_status.buckets,
+      // ...
+    };
+  }
+
+  protected async generateAIOpinions(data: DailyReportData): Promise<AIOpinion[]> {
+    const gemini = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+    const model = gemini.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+    const prompt = `
+다음 일일 보안 데이터를 분석하고 한국어로 요약해주세요:
+
+**데이터**:
+- 총 인시던트: ${data.totalIncidents}건
+- Critical/High: ${data.criticalHigh}건
+- 평균 해결 시간: ${data.mttr}분
+- 해결률: ${data.resolutionRate}%
+
+**요청사항**:
+1. 주요 패턴 (3~5문장)
+2. 권장 조치 (체크리스트 3개)
+3. 특이사항 (있다면)
+`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    return [
+      {
+        title: 'AI 종합 의견',
+        content: text,
+        provider: 'gemini-2.0-flash-exp',
+        generatedAt: new Date(),
+      },
+    ];
+  }
+}
+```
+
+### 5.3 데이터베이스 스키마
+
+```prisma
+// prisma/schema.prisma
+
+model Report {
+  id            String       @id @default(uuid())
+  type          ReportType   // 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+  title         String
+  startDate     DateTime
+  endDate       DateTime
+  content       Json         // 전체 보고서 내용 (블록 배열)
+  status        ReportStatus @default(GENERATING) // 'generating' | 'completed' | 'failed'
+  generatedAt   DateTime     @default(now())
+  generatedBy   String?      // 수동 생성 시 사용자 ID
+  scheduledBy   String?      // 자동 생성 시 스케줄 ID
+
+  // PDF 파일 경로
+  pdfPath       String?
+
+  // 템플릿 참조
+  templateId    String?
+  template      ReportTemplate? @relation(fields: [templateId], references: [id])
+
+  // 버전 관리
+  versions      ReportVersion[]
+
+  // 댓글
+  comments      Comment[]
+
+  @@index([type])
+  @@index([startDate, endDate])
+  @@index([status])
+}
+
+model ReportTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  type        ReportType
+  sections    Json     // ReportSection[] 배열
+  isPublic    Boolean  @default(false)
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  reports     Report[]
+  user        User     @relation(fields: [createdBy], references: [id])
+
+  @@index([type])
+  @@index([isPublic])
+}
+
+model ReportSchedule {
+  id          String         @id @default(uuid())
+  name        String
+  type        ReportType
+  frequency   Frequency      // 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+  cronExpr    String         // '0 9 * * *' (매일 9시)
+  isActive    Boolean        @default(true)
+  templateId  String?
+  recipients  String[]       // 이메일 주소 배열
+  createdBy   String
+  createdAt   DateTime       @default(now())
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+
+  template    ReportTemplate? @relation(fields: [templateId], references: [id])
+  user        User            @relation(fields: [createdBy], references: [id])
+
+  @@index([isActive])
+  @@index([nextRunAt])
+}
+
+enum ReportType {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum ReportStatus {
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+```
+
+### 5.4 자동 스케줄링 (node-cron)
+
+```typescript
+// src/lib/cron/report-scheduler.ts
+
+import cron from 'node-cron';
+import { prisma } from '@/lib/prisma';
+import { ReportGeneratorFactory } from '@/lib/report-generator';
+
+export class ReportScheduler {
+  private jobs: Map<string, cron.ScheduledTask> = new Map();
+
+  async start() {
+    console.log('📅 보고서 스케줄러 시작...');
+
+    // DB에서 활성화된 스케줄 조회
+    const schedules = await prisma.reportSchedule.findMany({
+      where: { isActive: true },
+    });
+
+    for (const schedule of schedules) {
+      this.scheduleJob(schedule);
+    }
+
+    console.log(`✅ ${schedules.length}개 스케줄 등록 완료`);
+  }
+
+  scheduleJob(schedule: ReportSchedule) {
+    const task = cron.schedule(schedule.cronExpr, async () => {
+      console.log(`🔄 보고서 생성 시작: ${schedule.name}`);
+
+      try {
+        // 1. 날짜 범위 계산
+        const dateRange = this.calculateDateRange(schedule.type);
+
+        // 2. 보고서 생성
+        const generator = ReportGeneratorFactory.create(schedule.type);
+        const report = await generator.generate(dateRange);
+
+        // 3. DB 저장
+        const savedReport = await prisma.report.create({
+          data: {
+            type: schedule.type,
+            title: report.title,
+            startDate: dateRange.start,
+            endDate: dateRange.end,
+            content: report.content,
+            status: 'COMPLETED',
+            scheduledBy: schedule.id,
+            templateId: schedule.templateId,
+          },
+        });
+
+        // 4. PDF 생성
+        const pdfPath = await this.generatePDF(savedReport);
+
+        await prisma.report.update({
+          where: { id: savedReport.id },
+          data: { pdfPath },
+        });
+
+        // 5. 이메일 발송
+        await this.sendEmail(schedule.recipients, savedReport, pdfPath);
+
+        // 6. 스케줄 업데이트
+        await prisma.reportSchedule.update({
+          where: { id: schedule.id },
+          data: {
+            lastRunAt: new Date(),
+            nextRunAt: this.calculateNextRun(schedule.cronExpr),
+          },
+        });
+
+        console.log(`✅ 보고서 생성 완료: ${savedReport.id}`);
+
+      } catch (error) {
+        console.error(`❌ 보고서 생성 실패: ${schedule.name}`, error);
+
+        // 실패 기록
+        await prisma.report.create({
+          data: {
+            type: schedule.type,
+            title: `[FAILED] ${schedule.name}`,
+            startDate: new Date(),
+            endDate: new Date(),
+            content: {},
+            status: 'FAILED',
+            scheduledBy: schedule.id,
+          },
+        });
+      }
+    });
+
+    this.jobs.set(schedule.id, task);
+  }
+
+  calculateDateRange(type: ReportType): DateRange {
+    const now = new Date();
+    let start: Date, end: Date;
+
+    switch (type) {
+      case 'DAILY':
+        // 어제 00:00 ~ 23:59
+        start = new Date(now);
+        start.setDate(start.getDate() - 1);
+        start.setHours(0, 0, 0, 0);
+
+        end = new Date(start);
+        end.setHours(23, 59, 59, 999);
+        break;
+
+      case 'WEEKLY':
+        // 지난 주 월요일 ~ 일요일
+        const lastMonday = new Date(now);
+        lastMonday.setDate(lastMonday.getDate() - (lastMonday.getDay() + 6) % 7 - 7);
+        lastMonday.setHours(0, 0, 0, 0);
+
+        const lastSunday = new Date(lastMonday);
+        lastSunday.setDate(lastSunday.getDate() + 6);
+        lastSunday.setHours(23, 59, 59, 999);
+
+        start = lastMonday;
+        end = lastSunday;
+        break;
+
+      case 'MONTHLY':
+        // 지난 달 1일 ~ 말일
+        start = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+        end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        break;
+
+      // ... quarterly, yearly
+    }
+
+    return { start, end };
+  }
+
+  async generatePDF(report: Report): Promise<string> {
+    // react-pdf 사용
+    const pdfBuffer = await generatePDFBuffer(report);
+    const filename = `report_${report.id}.pdf`;
+    const filepath = `/reports/${filename}`;
+
+    await fs.writeFile(`./public${filepath}`, pdfBuffer);
+
+    return filepath;
+  }
+
+  async sendEmail(recipients: string[], report: Report, pdfPath: string) {
+    // Nodemailer 또는 SendGrid 사용
+    const transporter = nodemailer.createTransporter({
+      host: process.env.SMTP_HOST,
+      port: 587,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: 'noreply@defenderx.com',
+      to: recipients.join(', '),
+      subject: `[DeFender X] ${report.title} - ${format(report.startDate, 'yyyy-MM-dd')}`,
+      html: `
+        <h2>${report.title}</h2>
+        <p>보고 기간: ${format(report.startDate, 'yyyy-MM-dd')} ~ ${format(report.endDate, 'yyyy-MM-dd')}</p>
+        <p>첨부된 PDF 파일을 확인해주세요.</p>
+        <p><a href="https://defenderxs.in-bridge.com/reports/${report.id}">온라인으로 보기</a></p>
+      `,
+      attachments: [
+        {
+          filename: `${report.title}.pdf`,
+          path: `./public${pdfPath}`,
+        },
+      ],
+    });
+  }
+}
+```
+
+**cron 표현식 예시**:
+```javascript
+// 일일 보고서: 매일 오전 9시
+'0 9 * * *'
+
+// 주간 보고서: 매주 월요일 오전 10시
+'0 10 * * 1'
+
+// 월간 보고서: 매월 1일 오전 10시
+'0 10 1 * *'
+
+// 분기 보고서: 1, 4, 7, 10월 5일 오전 10시
+'0 10 5 1,4,7,10 *'
+
+// 연간 보고서: 매년 1월 15일 오전 10시
+'0 10 15 1 *'
+```
+
+---
+
+## 6. 개발 계획
+
+### 6.1 개발 로드맵 (10주)
+
+#### **Phase 1: 기초 작업 (1~2주)**
+
+**Week 1**:
+- [ ] 데이터베이스 스키마 설계 (Prisma)
+- [ ] 보고서 유형별 구성 확정 (일일/주간/월간/분기/연간)
+- [ ] 기존 코드 리팩토링 (report-template-generator2.ts)
+- [ ] 팩토리 패턴 구현 (ReportGeneratorFactory)
+
+**Week 2**:
+- [ ] Daily/Weekly Report Generator 구현
+- [ ] OpenSearch 쿼리 최적화
+- [ ] AI Opinion 생성 로직 개선 (Gemini 2.5 Pro)
+- [ ] 기본 템플릿 3개 제작
+
+**산출물**:
+- Prisma 스키마 파일
+- ReportGenerator 추상 클래스
+- DailyReportGenerator, WeeklyReportGenerator
+- 기본 템플릿 3개
+
+---
+
+#### **Phase 2: 템플릿 시스템 (3~4주)**
+
+**Week 3**:
+- [ ] 템플릿 CRUD API 구현
+- [ ] 템플릿 라이브러리 UI (템플릿 목록, 미리보기)
+- [ ] 템플릿 저장/불러오기 기능
+- [ ] 공개 템플릿 vs 개인 템플릿 권한 관리
+
+**Week 4**:
+- [ ] Monthly/Quarterly Report Generator 구현
+- [ ] 섹션별 위젯 렌더링 로직
+- [ ] PDF 내보내기 기능 (react-pdf)
+- [ ] 마크다운 내보내기 기능
+
+**산출물**:
+- 템플릿 관리 API (GET/POST/PUT/DELETE /api/templates)
+- 템플릿 라이브러리 UI
+- PDF 생성 엔진 (react-pdf)
+- 5개 보고서 유형 전체 구현
+
+---
+
+#### **Phase 3: 블록 에디터 (5~6주)**
+
+**Week 5**:
+- [ ] Tiptap 블록 에디터 설치 및 설정
+- [ ] 15가지 블록 타입 구현
+- [ ] 슬래시 명령어 메뉴 (`/`)
+- [ ] 드래그 앤 드롭 블록 재정렬 (dnd-kit)
+
+**Week 6**:
+- [ ] 인라인 편집 기능 (@멘션, #태그)
+- [ ] 마크다운 단축키 지원
+- [ ] 블록 스타일링 (색상, 정렬, 들여쓰기)
+- [ ] 보고서 블록 → PDF 변환 로직
+
+**산출물**:
+- Tiptap 블록 에디터 컴포넌트
+- 슬래시 명령어 메뉴
+- 블록 렌더링 엔진
+- 블록 → PDF 변환기
+
+---
+
+#### **Phase 4: 자동 생성 (7~8주)**
+
+**Week 7**:
+- [ ] node-cron 스케줄러 구현
+- [ ] cron 표현식 파서
+- [ ] 스케줄 관리 UI (생성/수정/삭제/활성화)
+- [ ] 다음 실행 시간 계산 로직
+
+**Week 8**:
+- [ ] 이메일 발송 시스템 (Nodemailer)
+- [ ] PDF 첨부 기능
+- [ ] 알림 시스템 (Slack, 대시보드 알림)
+- [ ] 실패 재시도 로직
+
+**산출물**:
+- ReportScheduler 클래스
+- 스케줄 관리 UI
+- 이메일 발송 시스템
+- 자동 생성 로그 및 모니터링
+
+---
+
+#### **Phase 5: 협업 기능 (9주)**
+
+**Week 9**:
+- [ ] 댓글 시스템 (블록별 댓글)
+- [ ] 버전 히스토리 (ReportVersion 모델)
+- [ ] 버전 복원 기능
+- [ ] 실시간 협업 (선택사항 - Y.js + WebSocket)
+
+**산출물**:
+- 댓글 CRUD API
+- 버전 히스토리 UI
+- 버전 비교/복원 기능
+
+---
+
+#### **Phase 6: 마무리 & 테스트 (10주)**
+
+**Week 10**:
+- [ ] UI/UX 개선 (디자인 폴리싱)
+- [ ] 성능 최적화 (쿼리 최적화, 캐싱)
+- [ ] 사용자 테스트 (SOC 팀 피드백)
+- [ ] 문서화 (사용자 가이드, API 문서)
+- [ ] 배포 준비 (프로덕션 환경 설정)
+
+**산출물**:
+- 최종 제품
+- 사용자 가이드 문서
+- API 문서
+- 배포 체크리스트
+
+---
+
+### 6.2 우선순위
+
+| 우선순위 | 기능 | 이유 |
+|---------|------|------|
+| **P0 (필수)** | 보고서 자동 생성 (5가지 유형) | 핵심 기능 |
+| **P0** | 템플릿 시스템 | 재사용성 |
+| **P0** | PDF 내보내기 | 배포 필수 |
+| **P0** | 자동 스케줄링 | 자동화 핵심 |
+| **P1 (중요)** | 블록 에디터 | 사용자 경험 |
+| **P1** | AI Opinion 생성 | 차별화 요소 |
+| **P2 (부가)** | 실시간 협업 | Nice to have |
+| **P2** | 버전 히스토리 | 편의 기능 |
+
+---
+
+### 6.3 성공 지표 (KPI)
+
+| 지표 | 목표 | 측정 방법 |
+|------|------|----------|
+| 보고서 생성 시간 | 일일 < 45초<br>월간 < 3분 | 로그 분석 |
+| 자동 생성 성공률 | 98% 이상 | 스케줄 실행 로그 |
+| 사용자 만족도 | 4.5/5 이상 | 설문 조사 |
+| 템플릿 사용률 | 80% 이상 | DB 통계 |
+| 이메일 발송 성공률 | 99% 이상 | SMTP 로그 |
+| PDF 생성 성공률 | 99% 이상 | 에러 로그 |
+
+---
+
+### 6.4 리스크 및 대응
+
+| 리스크 | 영향도 | 대응 방안 |
+|--------|--------|----------|
+| AI API 비용 증가 | 중간 | 캐싱 전략, 배치 처리 |
+| OpenSearch 쿼리 느림 | 높음 | 인덱스 최적화, 캐싱 |
+| PDF 생성 실패 | 중간 | Fallback: 마크다운 출력 |
+| 이메일 발송 실패 | 낮음 | 재시도 로직, 로그 알림 |
+| 스케줄 충돌 | 낮음 | Job Queue (Bull) 도입 |
+
+---
+
+## 결론
+
+이 기획서는 DeFender X SIEM의 **보고서 자동 생성 시스템**을 구축하기 위한 상세 계획입니다.
+
+**핵심 요소**:
+1. ✅ **5가지 보고서 유형**: 일일, 주간, 월간, 분기, 연간 (각각 9~19개 섹션)
+2. ✅ **템플릿 시스템**: 재사용 가능한 보고서 템플릿
+3. ✅ **블록 에디터**: 노션 스타일 편집 (15가지 블록)
+4. ✅ **위젯 시스템**: 드래그 앤 드롭 차트/테이블
+5. ✅ **자동 스케줄링**: node-cron 기반 자동 생성
+6. ✅ **AI 생성 콘텐츠**: Gemini 2.5 Pro 인사이트
+7. ✅ **PDF/마크다운 출력**: 다양한 형식 지원
+
+**차별화 요소**:
+- MITRE ATT&CK 매핑
+- TI 검증 (VirusTotal, NSRL)
+- 컴플라이언스 지표 (ISMS-P, ISO 27001)
+- ROI 분석
+- 케이스 스터디
+
+**개발 기간**: 10주 (2025-12-02 ~ 2026-02-08)
+
+---
+
+**문서 버전**: 1.0
+**최종 수정**: 2025-11-21
+**작성자**: Claude Code + Plan Agent

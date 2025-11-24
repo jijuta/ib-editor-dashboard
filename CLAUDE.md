@@ -4,9 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is a **security incident analysis and reporting platform** built with Next.js 16, React 19, and TypeScript. The application integrates with **OpenSearch** (Cortex XDR security incidents) and **PostgreSQL** (threat intelligence data) to provide automated incident investigation, AI-powered analysis, and daily security reports. The project includes 11 MCP servers and 47+ TypeScript scripts for security automation.
+This is a **security incident analysis and reporting platform** built with Next.js 16, React 19, and TypeScript. The application integrates with **OpenSearch** (Cortex XDR security incidents) and **PostgreSQL** (threat intelligence data) to provide automated incident investigation, AI-powered analysis, and daily security reports. The project includes 12 MCP servers and 60+ automation scripts (TypeScript + shell scripts) for security automation.
 
 **Important**: This runs on **port 40017** (not 3000) to avoid conflicts with other services in the `/www` monorepo.
+
+## Quick Reference
+
+```bash
+# Start development server
+npm run dev                                          # http://localhost:40017
+
+# Investigate a single incident
+npx tsx script/investigate-incident-cli.ts --incident-id 414186
+
+# Generate daily report (yesterday)
+./daily-report.sh
+
+# Test natural language queries
+./test/quick-test.sh
+
+# Query OpenSearch using natural language
+npx tsx script/nl-query-parser.ts "Show me high severity incidents from last week"
+```
 
 ## Commands
 
@@ -20,23 +39,26 @@ npm run lint         # Run ESLint
 
 ### Testing (Natural Language Query System)
 ```bash
-# Quick parser + OpenSearch integration tests
+# Quick parser + OpenSearch integration tests (RECOMMENDED)
 ./test/quick-test.sh
 
-# Parser only (no OpenSearch queries)
+# Parser only tests (no OpenSearch queries, fast)
 npx tsx test/nl-query-parser-only.ts
 
-# Full integration test
+# Full integration test with OpenSearch
 npx tsx test/nl-query-basic.ts
 
-# Azure OpenAI test
+# Azure OpenAI model test
 ./test/test-azure.sh
 
-# Claude AI test
+# Claude AI model test
 ./test/test-claude.sh
 
-# MCP server test
+# MCP server direct test
 ./test/test-mcp-direct.sh
+
+# MCP query test (requires MCP server running)
+./test/test-mcp-query.sh
 ```
 
 ### Incident Investigation
@@ -92,7 +114,7 @@ npx tsx script/watch-incidents.ts
 
 ### MCP Server Integration
 
-11 MCP servers configured in `.mcp.json`:
+12 MCP servers configured in `.mcp.json`:
 
 **Standard Servers:**
 1. `next-devtools` - Next.js development tools
@@ -136,13 +158,15 @@ npx tsx script/watch-incidents.ts
 │   └── ui/                        # shadcn/ui components (New York style)
 ├── lib/                           # Shared utilities
 │   └── utils.ts                   # cn() helper (tailwind-merge + clsx)
-├── script/                        # 47+ automation scripts
-│   ├── nl-query-*.ts              # Natural language query system (8 files)
-│   ├── ai-*.ts                    # AI analyzers (7 files)
-│   ├── investigate-*.ts           # Incident investigation (5 files)
+├── script/                        # 60+ automation scripts
+│   ├── nl-query-*.ts              # Natural language query system (4 files)
+│   ├── ai-analyzers/              # AI analyzers (9 files: 7 analyzers + helper + types)
+│   ├── investigate-*.ts           # Incident investigation (2 files)
 │   ├── opensearch*.ts             # OpenSearch clients (3 files)
-│   ├── generate-*-report.ts       # Report generation (6 files)
-│   └── *.sh                       # Shell automation scripts (9 files)
+│   ├── generate-*-report.ts       # Report generation (multiple files)
+│   ├── collect-*.ts               # Data collection scripts
+│   ├── *.sh                       # Shell automation scripts (13 files)
+│   └── *.js                       # MCP server implementations (3 files)
 ├── test/                          # Test suite
 │   ├── quick-test.sh              # Fast parser + integration tests
 │   ├── test-azure.sh              # Azure OpenAI tests
@@ -156,11 +180,12 @@ npx tsx script/watch-incidents.ts
 ### Critical Scripts
 
 **Natural Language Query System:**
-- `nl-query-parser.ts` - Converts natural language to OpenSearch DSL (supports 30+ date expressions, 8 data types)
+- `nl-query-parser.ts` - Converts natural language to OpenSearch DSL (supports 30+ date expressions, 8 data types, 3 AI models)
+- `nl-query-schema.ts` - Zod validation schemas for query parameters
 - `nl-query-mcp.js` - MCP server for NL query interface
-- `opensearch-executor.ts` - Executes OpenSearch queries
 - `date-parser.ts` - Advanced date parsing ("last week", "3 days ago", etc.)
 - `index-mapping.ts` - Index pattern and field mapping
+- `opensearch-executor.ts` - Executes OpenSearch queries
 
 **AI Incident Analysis (Parallel System):**
 - `ai-parallel-analyzer.ts` - Orchestrator for 7 parallel analyzers
@@ -171,6 +196,8 @@ npx tsx script/watch-incidents.ts
 - `ai-analyzers/cve-analyzer.ts` - Vulnerability verification
 - `ai-analyzers/endpoint-analyzer.ts` - Endpoint risk assessment
 - `ai-analyzers/synthesizer.ts` - Final verdict synthesis
+- `ai-analyzers/ai-helper.ts` - Shared AI utilities
+- `ai-analyzers/types.ts` - TypeScript type definitions
 
 **Investigation Pipeline:**
 - `investigate-incident-cli.ts` - CLI tool for single incident investigation
@@ -187,8 +214,11 @@ npx tsx script/watch-incidents.ts
 **Automation:**
 - `cron-investigate.ts` - Cron job for automated investigation
 - `watch-incidents.ts` - File system watcher for event-driven triggers
-- `auto-daily-report.sh` - Complete daily report automation
+- `auto-daily-report.sh` - Complete daily report automation (recommended)
+- `auto-daily-report-v2.sh` - Alternative daily report script
 - `quick-investigate.sh` - Fast investigation wrapper
+- `generate-weekly-report.sh` - Weekly report generation
+- `pass1-classify-all.sh` / `pass2-detailed-analysis.sh` - Two-pass analysis pipeline
 
 ## Environment Configuration
 
@@ -221,6 +251,55 @@ The following hosts map to `20.41.120.173` in `/etc/hosts`:
 
 ## Development Workflow
 
+### Common Use Cases
+
+**Use Case 1: Investigate a Specific Incident**
+```bash
+# Step 1: Get incident details
+node script/info.js 414186 --summary
+
+# Step 2: Run full investigation with AI analysis
+npx tsx script/investigate-incident-cli.ts --incident-id 414186
+
+# Step 3: View generated reports
+ls -lh public/reports/incident_414186_*
+```
+
+**Use Case 2: Daily Security Report**
+```bash
+# Generate report for yesterday
+./daily-report.sh
+
+# Generate report for specific date
+./daily-report.sh 2025-11-08
+
+# View generated report
+open public/reports/daily/daily_report_2025-11-08.html
+```
+
+**Use Case 3: Natural Language Search**
+```bash
+# Test NL query system
+./test/quick-test.sh
+
+# Execute custom query
+npx tsx script/nl-query-parser.ts "Show me critical incidents with file artifacts from last 24 hours"
+
+# Use MCP tool (from Claude Code)
+# nl_query({ query: "...", execute: true, format: "markdown" })
+```
+
+**Use Case 4: Automated Investigation Pipeline**
+```bash
+# Run once (foreground)
+npx tsx script/cron-investigate.ts --once
+
+# Setup cron job (background, runs every hour)
+# See CRON_SETUP.md for detailed instructions
+crontab -e
+# Add: 0 * * * * cd /www/ib-editor/my-app && npx tsx script/cron-investigate.ts --once
+```
+
 ### Working with Natural Language Queries
 
 The NL query system converts natural language to OpenSearch DSL:
@@ -235,6 +314,11 @@ The NL query system converts natural language to OpenSearch DSL:
 **Supported Data Types:**
 - `incidents`, `alerts`, `files`, `networks`, `processes`, `endpoints`, `causality_chains`, `cves`
 
+**Supported AI Models:**
+- `gemini-2.5-pro`, `gemini-2.0-flash` (Google Gemini)
+- `azure-gpt-4o-mini` (Azure OpenAI, default)
+- `claude-3.5-sonnet` (Anthropic Claude)
+
 **Date Expression Examples:**
 - "last 7 days", "yesterday", "last week"
 - "between 2025-11-01 and 2025-11-08"
@@ -242,10 +326,11 @@ The NL query system converts natural language to OpenSearch DSL:
 
 ### Incident Investigation Workflow
 
-1. **Data Collection**: Query 7 OpenSearch indices for incident
-2. **TI Correlation**: Match file hashes, IPs, MITRE techniques, CVEs with PostgreSQL
-3. **AI Analysis**: Run 6 parallel analyzers + 1 synthesizer (Azure OpenAI)
-4. **Result Storage**: Save JSON (full data, ~140KB) and Markdown (report, ~50KB)
+1. **Data Collection**: Query 7 OpenSearch indices for incident (incidents, alerts, files, networks, processes, endpoints, causality_chains)
+2. **TI Correlation**: Match file hashes, IPs, MITRE techniques, CVEs with PostgreSQL (`ioclog` schema)
+3. **AI Analysis**: Run 7 parallel analyzers (analyst-verifier, file-hash, network, mitre, cve, endpoint, synthesizer) using Azure OpenAI
+4. **Caching**: Check `.cache/investigations.db` (SQLite) before re-analyzing
+5. **Result Storage**: Save JSON (full data, ~140KB), Markdown (report, ~50KB), and HTML (Korean, formatted)
 
 **Output Locations:**
 - JSON: `public/reports/incident_[ID]_[timestamp].json`
@@ -321,20 +406,81 @@ save_analysis_and_generate_report({
 ## Important Notes
 
 1. **Port Configuration**: Always use port 40017 (not 3000) for dev and production
-2. **Host Resolution**: `opensearch` and `postgres` hostnames map to 20.41.120.173
-3. **Package Manager**: Use `npm` (both package-lock.json and pnpm-lock.yaml exist, but scripts use npm)
-4. **AI Model Default**: Azure OpenAI `gpt-4o-mini` is the primary model (cost-effective)
+2. **Host Resolution**: `opensearch` and `postgres` hostnames map to 20.41.120.173 via `/etc/hosts`
+3. **Package Manager**: Use `npm` only (both package-lock.json and pnpm-lock.yaml exist, but npm is the standard)
+4. **AI Model Default**: Azure OpenAI `gpt-4o-mini` is the primary model (cost-effective, fast)
 5. **OpenSearch Auth**: Always use `admin:Admin@123456` credentials
 6. **Report Storage**: Reports go to `public/reports/` (NOT `/tmp/`)
-7. **Caching**: SQLite database at `.cache/investigations.db` for performance
+7. **Caching**: SQLite database at `.cache/investigations.db` for performance (prevents re-analysis)
 8. **Token Optimization**: AI analyzers use filtered data (68% reduction) for cost efficiency
 9. **Parallel Execution**: 7 AI analyzers run in parallel (3-5x speed improvement)
 10. **Korean Language**: Investigation reports are generated in Korean for Korean security teams
+11. **Index Prefixes**: All Cortex XDR indices use `logs-cortex_xdr-*` pattern
+12. **MCP Server Ports**: OpenSearch MCP (8099), Incident Analysis MCP (8100)
+
+## Troubleshooting
+
+### OpenSearch Connection Issues
+```bash
+# Test OpenSearch connectivity
+curl -X GET "http://opensearch:9200/_cluster/health" -u admin:Admin@123456 --insecure
+
+# Check if hostname resolves correctly
+cat /etc/hosts | grep opensearch
+```
+
+### PostgreSQL Connection Issues
+```bash
+# Test PostgreSQL connectivity (n8n database)
+PGPASSWORD=postgres psql -h postgres -U postgres -d n8n -c "\dt ioclog.*"
+
+# Verify threat intelligence data
+PGPASSWORD=postgres psql -h postgres -U postgres -d n8n -c "SELECT COUNT(*) FROM ioclog.bazaar_malware"
+```
+
+### Investigation Cache Issues
+```bash
+# Check cache database
+sqlite3 .cache/investigations.db "SELECT incident_id, timestamp FROM investigations ORDER BY timestamp DESC LIMIT 10;"
+
+# Clear cache for specific incident
+sqlite3 .cache/investigations.db "DELETE FROM investigations WHERE incident_id = '414186';"
+
+# Clear all cache (use with caution)
+rm -f .cache/investigations.db
+```
+
+### MCP Server Connection Issues
+```bash
+# Test OpenSearch MCP server
+curl -X GET "http://20.41.120.173:8099/health"
+
+# Test Incident Analysis MCP server
+curl -X GET "http://20.41.120.173:8100/health"
+
+# Check MCP configuration
+cat .mcp.json | jq '.mcpServers | keys'
+```
+
+### Port Already in Use
+```bash
+# Check what's using port 40017
+lsof -i :40017
+# OR
+netstat -tlnp | grep 40017
+
+# Kill the process if needed
+kill -9 <PID>
+```
 
 ## Related Documentation
 
 - `README_INVESTIGATION.md` - Detailed incident investigation system documentation
 - `README-DAILY-REPORT.md` - Daily report generation guide
-- `CRON_SETUP.md` - Automated report scheduling
+- `CRON_SETUP.md` - Automated report scheduling guide with systemd/cron examples
 - `CLAUDE_REPORTS_README.md` - Claude-powered investigation reports
+- `MCP_SERVERS_MANUAL.md` - Complete MCP server integration guide
 - `NEXT_CONVERSATION.md` - Development roadmap and conversation context
+- `docs/SYSTEM_OVERVIEW.md` - System architecture overview
+- `docs/OpenSearch_Index_List.md` - Complete OpenSearch index structure (22KB reference)
+- `docs/NL_QUERY_MODEL_GUIDE.md` - AI model selection guide for NL queries

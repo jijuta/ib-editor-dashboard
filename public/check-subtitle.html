@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자막 테스트</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        video {
+            width: 100%;
+            max-width: 800px;
+            display: block;
+            margin: 20px auto;
+        }
+        .info {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+        .warning { color: #fbbf24; }
+        pre {
+            background: #333;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎬 DefenderX 비디오 자막 테스트</h1>
+
+    <video id="testVideo" controls crossorigin="anonymous">
+        <source src="/defenderx-video.mp4" type="video/mp4">
+        <track kind="subtitles" src="/defender_x.srt" srclang="ko" label="한국어" default>
+    </video>
+
+    <div class="info">
+        <h2>컨트롤</h2>
+        <button onclick="checkSubtitles()">자막 상태 확인</button>
+        <button onclick="enableSubtitles()">자막 강제 활성화</button>
+        <button onclick="downloadSRT()">SRT 파일 다운로드 테스트</button>
+    </div>
+
+    <div class="info">
+        <h2>📊 자막 상태</h2>
+        <div id="status"></div>
+    </div>
+
+    <div class="info">
+        <h2>📝 로그</h2>
+        <pre id="log"></pre>
+    </div>
+
+    <script>
+        const video = document.getElementById('testVideo');
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+
+        let logs = [];
+
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+            logs.push(`[${timestamp}] ${prefix} ${message}`);
+            logDiv.textContent = logs.join('\n');
+        }
+
+        function checkSubtitles() {
+            addLog('=== 자막 상태 확인 시작 ===');
+
+            if (!video.textTracks || video.textTracks.length === 0) {
+                addLog('자막 트랙이 없습니다!', 'error');
+                statusDiv.innerHTML = '<p class="error">❌ 자막 트랙 없음</p>';
+                return;
+            }
+
+            const trackInfo = [];
+            for (let i = 0; i < video.textTracks.length; i++) {
+                const track = video.textTracks[i];
+                trackInfo.push({
+                    index: i,
+                    kind: track.kind,
+                    label: track.label,
+                    language: track.language,
+                    mode: track.mode,
+                    cuesCount: track.cues ? track.cues.length : 0,
+                    activeCues: track.activeCues ? track.activeCues.length : 0
+                });
+
+                addLog(`트랙 ${i}: ${track.label} (${track.language}) - mode: ${track.mode}`);
+
+                if (track.cues) {
+                    addLog(`  → 자막 큐 개수: ${track.cues.length}`, 'success');
+                    if (track.cues.length > 0) {
+                        addLog(`  → 첫 번째 자막: "${track.cues[0].text}"`);
+                    }
+                } else {
+                    addLog(`  → 자막 큐 로드 실패`, 'error');
+                }
+            }
+
+            const html = `
+                <p class="success">✅ 텍스트 트랙 발견: ${video.textTracks.length}개</p>
+                <pre>${JSON.stringify(trackInfo, null, 2)}</pre>
+            `;
+            statusDiv.innerHTML = html;
+        }
+
+        function enableSubtitles() {
+            if (video.textTracks.length > 0) {
+                video.textTracks[0].mode = 'showing';
+                addLog('자막을 강제로 활성화했습니다', 'success');
+                checkSubtitles();
+            } else {
+                addLog('활성화할 자막이 없습니다', 'error');
+            }
+        }
+
+        async function downloadSRT() {
+            try {
+                addLog('SRT 파일 다운로드 시도...');
+                const response = await fetch('/defender_x.srt');
+                if (!response.ok) {
+                    addLog(`SRT 파일 로드 실패: ${response.status}`, 'error');
+                    return;
+                }
+                const text = await response.text();
+                addLog(`SRT 파일 로드 성공: ${text.length} bytes`, 'success');
+                addLog(`첫 100자: ${text.substring(0, 100)}`);
+            } catch (err) {
+                addLog(`SRT 다운로드 오류: ${err.message}`, 'error');
+            }
+        }
+
+        // 이벤트 리스너
+        video.addEventListener('loadedmetadata', () => {
+            addLog('비디오 메타데이터 로드 완료', 'success');
+            checkSubtitles();
+        });
+
+        video.addEventListener('loadeddata', () => {
+            addLog('비디오 데이터 로드 완료', 'success');
+        });
+
+        video.textTracks.addEventListener('addtrack', (e) => {
+            addLog(`새 트랙 추가됨: ${e.track.label}`, 'success');
+        });
+
+        video.textTracks.addEventListener('change', () => {
+            addLog('트랙 변경 이벤트 발생');
+            checkSubtitles();
+        });
+
+        // 페이지 로드 시 자동 확인
+        window.addEventListener('load', () => {
+            addLog('페이지 로드 완료');
+            setTimeout(checkSubtitles, 1000);
+        });
+    </script>
+</body>
+</html>

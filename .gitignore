@@ -48,3 +48,11 @@ next-env.d.ts
 /data/
 /public/reports/
 /public/reports
+
+# Large video files (keep only optimized version)
+public/*.mp4
+!public/defenderx-video-optimized.mp4
+!public/logo2.mp4
+
+# Core dumps
+core.*
