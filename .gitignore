@@ -53,6 +53,7 @@ next-env.d.ts
 public/*.mp4
 !public/defenderx-video-optimized.mp4
 !public/logo2.mp4
+!public/log1.mp4
 
 # Core dumps
 core.*
