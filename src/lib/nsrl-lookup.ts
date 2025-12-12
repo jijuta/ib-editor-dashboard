@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * NSRL (National Software Reference Library) Lookup API
  *

@@ -3,9 +3,9 @@
  * MITRE ATT&CK 기법 분석 및 검증
  */
 
-import { runAIAnalysis, parseAIResponse } from './ai-helper.js';
-import type { MITREAnalysisResult } from './types.js';
-import type { FilteredData } from '../ai-data-filter.js';
+import { runAIAnalysis, parseAIResponse } from './ai-helper';
+import type { MITREAnalysisResult } from './types';
+import type { FilteredData } from '../ai-data-filter';
 
 const SYSTEM_PROMPT = `You are a threat intelligence analyst specializing in MITRE ATT&CK framework.
 Evaluate detected techniques and explain their relevance to this incident.

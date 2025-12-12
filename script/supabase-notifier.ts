@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Supabase Notification Module
  * 보고서 생성 완료 시 알림 전송

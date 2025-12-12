@@ -3,9 +3,9 @@
  * 파일 해시 TI 매칭 결과 분석
  */
 
-import { runAIAnalysis, parseAIResponse } from './ai-helper.js';
-import type { FileHashAnalysisResult } from './types.js';
-import type { FilteredData } from '../ai-data-filter.js';
+import { runAIAnalysis, parseAIResponse } from './ai-helper';
+import type { FileHashAnalysisResult } from './types';
+import type { FilteredData } from '../ai-data-filter';
 
 const SYSTEM_PROMPT = `You are a malware analyst evaluating file artifacts.
 Analyze threat intelligence matches and determine which files are truly dangerous.

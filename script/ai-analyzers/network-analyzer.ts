@@ -3,9 +3,9 @@
  * 네트워크 연결 및 IP 주소 분석
  */
 
-import { runAIAnalysis, parseAIResponse } from './ai-helper.js';
-import type { NetworkAnalysisResult } from './types.js';
-import type { FilteredData } from '../ai-data-filter.js';
+import { runAIAnalysis, parseAIResponse } from './ai-helper';
+import type { NetworkAnalysisResult } from './types';
+import type { FilteredData } from '../ai-data-filter';
 
 const SYSTEM_PROMPT = `You are a network security analyst.
 Evaluate IP addresses and network connections for suspicious activity.

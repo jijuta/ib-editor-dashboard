@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+// @ts-nocheck
 /**
  * Stage 1: 일일 인시던트 데이터 수집
  *

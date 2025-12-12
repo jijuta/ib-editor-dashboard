@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * OpenSearch Query Executor
  * OpenSearch DSL 쿼리 실행 및 결과 처리

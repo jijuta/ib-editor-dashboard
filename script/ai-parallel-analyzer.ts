@@ -3,14 +3,14 @@
  * 7개 AI 분석을 병렬 실행하여 토큰 절약 및 속도 향상
  */
 
-import { filterDataForAI, estimateTokens } from './ai-data-filter.js';
-import { verifyAnalystJudgment } from './ai-analyzers/analyst-verifier.js';
-import { analyzeFileHashes } from './ai-analyzers/file-hash-analyzer.js';
-import { analyzeNetwork } from './ai-analyzers/network-analyzer.js';
-import { analyzeMITRE } from './ai-analyzers/mitre-analyzer.js';
-import { analyzeCVEs } from './ai-analyzers/cve-analyzer.js';
-import { analyzeEndpoints } from './ai-analyzers/endpoint-analyzer.js';
-import { synthesizeAnalyses } from './ai-analyzers/synthesizer.js';
+import { filterDataForAI, estimateTokens } from './ai-data-filter';
+import { verifyAnalystJudgment } from './ai-analyzers/analyst-verifier';
+import { analyzeFileHashes } from './ai-analyzers/file-hash-analyzer';
+import { analyzeNetwork } from './ai-analyzers/network-analyzer';
+import { analyzeMITRE } from './ai-analyzers/mitre-analyzer';
+import { analyzeCVEs } from './ai-analyzers/cve-analyzer';
+import { analyzeEndpoints } from './ai-analyzers/endpoint-analyzer';
+import { synthesizeAnalyses } from './ai-analyzers/synthesizer';
 
 export interface ParallelAnalysisResult {
   incident_id: string;

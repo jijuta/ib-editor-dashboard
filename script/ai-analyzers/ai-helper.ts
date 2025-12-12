@@ -55,14 +55,14 @@ export async function runAIAnalysis(
       system: systemPrompt,
       prompt: userPrompt,
       temperature: options?.temperature ?? 0.2,
-      maxTokens: options?.maxTokens ?? 800,  // 각 분석은 짧게
+      maxOutputTokens: options?.maxTokens ?? 800,  // 각 분석은 짧게
     });
 
     const executionTime = Date.now() - startTime;
 
     return {
       text,
-      tokens_used: (usage?.promptTokens || 0) + (usage?.completionTokens || 0),
+      tokens_used: ((usage as any)?.inputTokens || (usage as any)?.promptTokens || 0) + ((usage as any)?.outputTokens || (usage as any)?.completionTokens || 0),
       execution_time_ms: executionTime,
     };
   } catch (error) {

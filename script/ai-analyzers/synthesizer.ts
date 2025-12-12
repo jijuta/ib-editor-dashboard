@@ -3,8 +3,8 @@
  * 모든 개별 분석 결과를 종합하여 최종 판단
  */
 
-import { runAIAnalysis, parseAIResponse } from './ai-helper.js';
-import type { SynthesisResult, AnalysisResult } from './types.js';
+import { runAIAnalysis, parseAIResponse } from './ai-helper';
+import type { SynthesisResult, AnalysisResult } from './types';
 
 const SYSTEM_PROMPT = `You are a senior security analyst making final incident assessment.
 Synthesize all category analyses into a comprehensive verdict.

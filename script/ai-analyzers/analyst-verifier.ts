@@ -3,9 +3,9 @@
  * 분석가 판단을 데이터 기반으로 검증
  */
 
-import { runAIAnalysis, parseAIResponse } from './ai-helper.js';
-import type { AnalystVerificationResult } from './types.js';
-import type { FilteredData } from '../ai-data-filter.js';
+import { runAIAnalysis, parseAIResponse } from './ai-helper';
+import type { AnalystVerificationResult } from './types';
+import type { FilteredData } from '../ai-data-filter';
 
 const SYSTEM_PROMPT = `You are a cybersecurity analyst verifying another analyst's judgment.
 Analyze the incident data and determine if the analyst's conclusion is supported by evidence.

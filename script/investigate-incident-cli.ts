@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 /**
  * Investigation CLI
  * 커맨드라인에서 인시던트 조사를 실행

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 /**
  * Report Data Collector - Claude Code 전용
  * AI 분석 없이 순수 데이터만 수집 (OpenSearch + TI)

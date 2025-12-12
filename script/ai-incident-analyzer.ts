@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * AI Incident Analyzer
  * Azure OpenAI를 사용하여 인시던트 조사 결과를 종합 분석

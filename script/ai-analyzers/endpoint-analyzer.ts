@@ -3,9 +3,9 @@
  * 엔드포인트 취약성 분석
  */
 
-import { runAIAnalysis, parseAIResponse } from './ai-helper.js';
-import type { EndpointAnalysisResult } from './types.js';
-import type { FilteredData } from '../ai-data-filter.js';
+import { runAIAnalysis, parseAIResponse } from './ai-helper';
+import type { EndpointAnalysisResult } from './types';
+import type { FilteredData } from '../ai-data-filter';
 
 const SYSTEM_PROMPT = `You are an endpoint security analyst.
 Assess endpoint vulnerability status based on CVE counts and OS types.

@@ -70,7 +70,7 @@ export const FiltersSchema = z
     vendor: z.string().optional(), // crowdstrike, microsoft, google, etc.
     status: z.string().optional(), // new, in_progress, resolved, closed, etc.
     detection_status: z.string().optional(), // true_positive, false_positive, benign, etc.
-    custom: z.record(z.any()).optional(), // 커스텀 필터
+    custom: z.record(z.string(), z.any()).optional(), // 커스텀 필터
   })
   .optional();
 

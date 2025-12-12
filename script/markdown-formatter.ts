@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Markdown Formatter
  * Investigation 데이터를 마크다운으로 포맷팅

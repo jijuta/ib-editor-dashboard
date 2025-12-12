@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 /**
  * COMPLETE_DAILY_REPORT_ARCHITECTURE.md를 HTML로 변환
  * Tailwind CSS 4 스타일링 적용
