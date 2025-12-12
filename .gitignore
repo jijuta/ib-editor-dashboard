@@ -57,3 +57,9 @@ public/*.mp4
 
 # Core dumps
 core.*
+
+# Large video files (exceed GitHub 100MB limit)
+public/defenderx-video.mp4
+public/dashboard.mov
+public/defenderx-video.mp4.backup
+public/logo2.mp4
