@@ -166,6 +166,29 @@
   animation-delay: 0s, 1s;
 }
 
+/* Hide scrollbar when not hovered */
+.overflow-y-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+.overflow-y-auto::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.5);
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.7);
+}
+
 /* Smooth letter spacing animation */
 @keyframes letter-spacing-expand {
   0% {
