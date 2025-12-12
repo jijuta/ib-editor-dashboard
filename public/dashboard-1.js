@@ -1,5 +1,4 @@
-// React에서 수동으로 호출할 수 있도록 전역 함수로 변경
-window.initDashboard = function() {
+document.addEventListener('DOMContentLoaded', function () {
     // 초기 플로우 상태 확인 및 설정
     const currentInfo = document.getElementById('currentProcessingIncident');
     const flowContent = document.getElementById('flowContent');
@@ -1146,4 +1145,4 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('첫 번째 자동 처리 플로우 시작');
         startAutomationFlow();
     }, 5000); // 페이지 로드 후 5초 대기
-}; // window.initDashboard 함수 종료
+});

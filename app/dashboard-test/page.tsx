@@ -1,15 +1,5 @@
 import SecurityDashboard from '@/components/dashboard/SecurityDashboard'
-import Script from 'next/script'
 
 export default function DashboardTestPage() {
-  return (
-    <>
-      {/* Font Awesome CDN */}
-      <Script
-        src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-        strategy="beforeInteractive"
-      />
-      <SecurityDashboard />
-    </>
-  )
+  return <SecurityDashboard />
 }
